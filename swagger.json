@@ -1,0 +1,910 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/messages": {
+      "post": {
+        "operationId": "MessagesController_create",
+        "summary": "创建新消息",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "消息创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "properties": {
+                        "code": {
+                          "type": "number",
+                          "example": 201
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "success"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/Message"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/messages/chat/{chatId}": {
+      "get": {
+        "operationId": "MessagesController_findAll",
+        "summary": "获取聊天室消息",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "description": "聊天室ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "TEXT",
+                "VOICE",
+                "FILE",
+                "LINK",
+                "IMAGE",
+                "VIDEO"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取消息列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "properties": {
+                        "code": {
+                          "type": "number",
+                          "example": 200
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "success"
+                        },
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Message"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/messages/unread": {
+      "get": {
+        "operationId": "MessagesController_getUnreadMessages",
+        "summary": "获取未读消息",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "query",
+            "description": "用户ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取未读消息"
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/messages/{id}": {
+      "patch": {
+        "operationId": "MessagesController_update",
+        "summary": "更新消息",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "消息ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "消息更新成功"
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      },
+      "delete": {
+        "operationId": "MessagesController_remove",
+        "summary": "删除消息",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "消息ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "消息删除成功"
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/messages/{id}/status": {
+      "patch": {
+        "operationId": "MessagesController_updateStatus",
+        "summary": "更新消息状态",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "消息ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMessageStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "消息状态更新成功"
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/messages/batch/status": {
+      "patch": {
+        "operationId": "MessagesController_updateManyStatus",
+        "summary": "批量更新消息状态",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "消息状态批量更新成功"
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/messages/chats": {
+      "get": {
+        "operationId": "MessagesController_getUserChats",
+        "summary": "获取用户的聊天列表",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取聊天列表"
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      },
+      "post": {
+        "operationId": "MessagesController_createChat",
+        "summary": "创建新的聊天",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "聊天创建成功"
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
+    "/users/register": {
+      "post": {
+        "operationId": "UsersController_create",
+        "summary": "注册新用户",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "用户创建成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/login": {
+      "post": {
+        "operationId": "UsersController_login",
+        "summary": "用户登录",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/logout": {
+      "post": {
+        "operationId": "UsersController_logout",
+        "summary": "用户登出",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "登出成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/{id}/friend-requests": {
+      "post": {
+        "operationId": "UsersController_sendFriendRequest",
+        "summary": "发送好友请求",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFriendRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "请求发送成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/friend-requests/{id}": {
+      "patch": {
+        "operationId": "UsersController_handleFriendRequest",
+        "summary": "处理好友请求",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFriendRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "请求处理成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/{id}/friends": {
+      "get": {
+        "operationId": "UsersController_getFriends",
+        "summary": "获取好友列表",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/search": {
+      "get": {
+        "operationId": "UsersController_searchUsers",
+        "summary": "搜索用户",
+        "parameters": [
+          {
+            "name": "keyword",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "搜索成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/friend-requests": {
+      "get": {
+        "operationId": "UsersController_getFriendRequests",
+        "summary": "获取所有好友请求",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "PENDING",
+                "ACCEPTED",
+                "REJECTED"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功"
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/redis/test/connection": {
+      "get": {
+        "operationId": "RedisController_testConnection",
+        "summary": "测试 Redis 连接",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "连接测试结果"
+          }
+        },
+        "tags": [
+          "redis"
+        ]
+      }
+    },
+    "/redis/test/set-get": {
+      "get": {
+        "operationId": "RedisController_testSetGet",
+        "summary": "测试 Redis 设置和获取值",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "设置和获取测试结果"
+          }
+        },
+        "tags": [
+          "redis"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Chat API",
+    "description": "The chat API description",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "messages",
+      "description": "消息相关接口"
+    },
+    {
+      "name": "users",
+      "description": "用户相关接口"
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "TextMetadata": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "description": "文本格式"
+          }
+        }
+      },
+      "FileMetadata": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "description": "文件名"
+          },
+          "fileSize": {
+            "type": "number",
+            "description": "文件大小(bytes)"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "文件类型"
+          },
+          "url": {
+            "type": "string",
+            "description": "文件URL"
+          }
+        },
+        "required": [
+          "fileName",
+          "fileSize",
+          "mimeType",
+          "url"
+        ]
+      },
+      "VoiceMetadata": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "number",
+            "description": "语音时长(秒)"
+          },
+          "url": {
+            "type": "string",
+            "description": "语音文件URL"
+          }
+        },
+        "required": [
+          "duration",
+          "url"
+        ]
+      },
+      "LinkMetadata": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "链接URL"
+          },
+          "title": {
+            "type": "string",
+            "description": "链接标题"
+          },
+          "description": {
+            "type": "string",
+            "description": "链接描述"
+          },
+          "thumbnail": {
+            "type": "string",
+            "description": "链接缩略图"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "ImageMetadata": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "number",
+            "description": "图片宽度"
+          },
+          "height": {
+            "type": "number",
+            "description": "图片高度"
+          },
+          "url": {
+            "type": "string",
+            "description": "图片URL"
+          },
+          "thumbnail": {
+            "type": "string",
+            "description": "缩略图URL"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "url"
+        ]
+      },
+      "VideoMetadata": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "number",
+            "description": "视频时长(秒)"
+          },
+          "width": {
+            "type": "number",
+            "description": "视频宽度"
+          },
+          "height": {
+            "type": "number",
+            "description": "视频高度"
+          },
+          "url": {
+            "type": "string",
+            "description": "视频URL"
+          },
+          "thumbnail": {
+            "type": "string",
+            "description": "视频缩略图"
+          }
+        },
+        "required": [
+          "duration",
+          "width",
+          "height",
+          "url"
+        ]
+      },
+      "CreateMessageDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "消息内容"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "TEXT",
+              "VOICE",
+              "FILE",
+              "LINK",
+              "IMAGE",
+              "VIDEO"
+            ],
+            "description": "消息类型",
+            "example": "TEXT"
+          },
+          "metadata": {
+            "description": "消息元数据",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TextMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/FileMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/VoiceMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/LinkMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/ImageMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/VideoMetadata"
+              }
+            ]
+          },
+          "senderId": {
+            "type": "number",
+            "description": "发送者ID",
+            "example": 1
+          },
+          "receiverId": {
+            "type": "number",
+            "description": "接收者ID",
+            "example": 2
+          },
+          "chatId": {
+            "type": "number",
+            "description": "聊天室ID",
+            "example": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SENT",
+              "DELIVERED",
+              "READ"
+            ],
+            "description": "消息状态",
+            "example": "SENT"
+          }
+        },
+        "required": [
+          "content",
+          "type",
+          "senderId",
+          "receiverId",
+          "chatId"
+        ]
+      },
+      "UpdateMessageDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "消息内容"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "TEXT",
+              "VOICE",
+              "FILE",
+              "LINK",
+              "IMAGE",
+              "VIDEO"
+            ],
+            "description": "消息类型"
+          },
+          "metadata": {
+            "description": "消息元数据",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TextMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/FileMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/VoiceMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/LinkMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/ImageMetadata"
+              },
+              {
+                "$ref": "#/components/schemas/VideoMetadata"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SENT",
+              "DELIVERED",
+              "READ"
+            ],
+            "description": "消息状态"
+          }
+        }
+      },
+      "UpdateMessageStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "SENT",
+              "DELIVERED",
+              "READ"
+            ],
+            "description": "消息状态"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "CreateUserDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "user1",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "example": "encrypted_password",
+            "description": "加密后的密码"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "user1",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "example": "encrypted_password",
+            "description": "加密后的密码"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "CreateFriendRequestDto": {
+        "type": "object",
+        "properties": {
+          "toId": {
+            "type": "number",
+            "description": "接收者ID"
+          },
+          "message": {
+            "type": "string",
+            "description": "请求消息"
+          }
+        },
+        "required": [
+          "toId"
+        ]
+      },
+      "UpdateFriendRequestDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACCEPTED",
+              "REJECTED"
+            ],
+            "description": "请求状态"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      }
+    }
+  }
+}
