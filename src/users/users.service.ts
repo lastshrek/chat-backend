@@ -1,4 +1,10 @@
-import { Injectable, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common'
+import {
+	Injectable,
+	UnauthorizedException,
+	ConflictException,
+	NotFoundException,
+	BadRequestException,
+} from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { RedisService } from '../redis/redis.service'
 import { CreateUserDto, LoginDto } from './dto/user.dto'
@@ -10,9 +16,12 @@ import { EventsService } from '../events/events.service'
 import { MessagesGateway } from '../messages/messages.gateway'
 import { MessagesService } from '../messages/messages.service'
 import { MessageType, MessageStatus } from '@prisma/client'
+import * as bcrypt from 'bcrypt'
 
 @Injectable()
 export class UsersService {
+	private readonly SALT_ROUNDS = 10
+
 	constructor(
 		private prisma: PrismaService,
 		private jwtService: JwtService,
@@ -67,15 +76,18 @@ export class UsersService {
 			throw new ConflictException('Username already exists')
 		}
 
-		// 解密密码
+		// 解密前端加密的密码
 		const decryptedPassword = this.decrypt(password)
-		console.log(decryptedPassword)
+
+		// 使用 bcrypt 加密密码
+		const hashedPassword = await bcrypt.hash(decryptedPassword, this.SALT_ROUNDS)
+
 		// 创建用户
 		const user = await this.prisma.user.create({
 			data: {
 				username,
-				password: decryptedPassword,
-				avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`, // 生成默认头像
+				password: hashedPassword, // 存储哈希后的密码
+				avatar: `https://api.dicebear.com/9.x/pixel-art-neutral/svg?seed=${username}`, // 生成默认头像
 			},
 			select: {
 				id: true,
@@ -112,9 +124,13 @@ export class UsersService {
 			throw new UnauthorizedException('Invalid credentials')
 		}
 
-		// 解密并验证密码
+		// 解密前端加密的密码
 		const decryptedPassword = this.decrypt(password)
-		if (decryptedPassword !== user.password) {
+
+		// 验证密码
+		const isPasswordValid = await bcrypt.compare(decryptedPassword, user.password)
+
+		if (!isPasswordValid) {
 			throw new UnauthorizedException('Invalid credentials')
 		}
 
@@ -213,83 +229,145 @@ export class UsersService {
 
 	// 处理好友请求
 	async handleFriendRequest(userId: number, requestId: number, updateDto: UpdateFriendRequestDto) {
+		this.logger.debug(`Handling friend request: ${requestId} by user: ${userId}`, 'UsersService')
+
+		// 查找好友请求
 		const request = await this.prisma.friendRequest.findUnique({
 			where: { id: requestId },
 			include: {
-				from: true,
-				to: true,
+				from: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				to: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
 			},
 		})
 
+		this.logger.debug(`Found request: ${JSON.stringify(request)}`, 'UsersService')
+
 		if (!request) {
+			this.logger.error(`Friend request not found: ${requestId}`, null, 'UsersService')
 			throw new NotFoundException('Friend request not found')
 		}
 
 		if (request.toId !== userId) {
-			throw new UnauthorizedException('Not authorized to handle this request')
+			this.logger.error(
+				`Unauthorized request handling: User ${userId} trying to handle request ${requestId} which belongs to user ${request.toId}`,
+				null,
+				'UsersService'
+			)
+			throw new UnauthorizedException('You can only handle friend requests sent to you')
 		}
 
-		const updatedRequest = await this.prisma.friendRequest.update({
-			where: { id: requestId },
-			data: { status: updateDto.status },
-			include: {
-				from: true,
-				to: true,
-			},
-		})
-
-		if (updateDto.status === 'ACCEPTED') {
-			// 创建好友关系
-			await this.prisma.$transaction([
-				this.prisma.friend.create({
-					data: {
-						userId: request.fromId,
-						friendId: request.toId,
-					},
-				}),
-				this.prisma.friend.create({
-					data: {
-						userId: request.toId,
-						friendId: request.fromId,
-					},
-				}),
-			])
-
-			// 创建聊天
-			const chat = await this.messagesService.createChat([request.fromId, request.toId])
-
-			// 发送系统消息
-			await this.messagesService.create({
-				chatId: chat.id,
-				senderId: request.toId, // 接受者发送消息
-				receiverId: request.fromId,
-				type: MessageType.TEXT,
-				content: '我已经通过了你的好友请求，开始聊天吧！',
-				status: MessageStatus.SENT,
-			})
-
-			// 通过 WebSocket 通知发送者
-			await this.messagesGateway.sendFriendRequestAccepted(request.fromId, {
-				request: updatedRequest,
-				accepter: {
-					id: userId,
-					username: request.to.username,
-					avatar: request.to.avatar,
-				},
-				chat, // 添加聊天信息
-			})
-		} else if (updateDto.status === 'REJECTED') {
-			await this.messagesGateway.sendFriendRequestRejected(request.fromId, {
-				request: updatedRequest,
-				rejecter: {
-					id: userId,
-					username: request.to.username,
-					avatar: request.to.avatar,
-				},
-			})
+		// 检查请求状态
+		if (request.status !== 'PENDING') {
+			throw new BadRequestException('This request has already been processed')
 		}
 
-		return updatedRequest
+		try {
+			const updatedRequest = await this.prisma.friendRequest.update({
+				where: { id: requestId },
+				data: { status: updateDto.status },
+				include: {
+					from: {
+						select: {
+							id: true,
+							username: true,
+							avatar: true,
+						},
+					},
+					to: {
+						select: {
+							id: true,
+							username: true,
+							avatar: true,
+						},
+					},
+				},
+			})
+
+			if (updateDto.status === 'ACCEPTED') {
+				// 创建好友关系
+				await this.prisma.$transaction([
+					this.prisma.friend.create({
+						data: {
+							userId: request.fromId,
+							friendId: request.toId,
+						},
+					}),
+					this.prisma.friend.create({
+						data: {
+							userId: request.toId,
+							friendId: request.fromId,
+						},
+					}),
+				])
+
+				// 创建聊天室
+				const chat = await this.messagesService.createChat([request.fromId, request.toId])
+				this.logger.debug(`Created chat: ${JSON.stringify(chat)}`, 'UsersService')
+
+				// 发送系统消息
+				const welcomeMessage = await this.messagesService.create({
+					chatId: chat.id,
+					senderId: request.toId,
+					receiverId: request.fromId,
+					type: MessageType.TEXT,
+					content: '我已经通过了你的好友请求，开始聊天吧！',
+					status: MessageStatus.SENT,
+				})
+
+				const responseData = {
+					request: updatedRequest,
+					chat: {
+						...chat,
+						lastMessage: welcomeMessage,
+					},
+					friend: {
+						id: request.fromId,
+						username: request.from.username,
+						avatar: request.from.avatar,
+					},
+				}
+
+				// 通过 WebSocket 通知双方
+				await this.messagesGateway.sendFriendRequestAccepted({
+					fromUserId: request.fromId,
+					toUserId: userId,
+					request: updatedRequest,
+					chat: {
+						...chat,
+						lastMessage: welcomeMessage,
+					},
+				})
+
+				return responseData
+			} else if (updateDto.status === 'REJECTED') {
+				await this.messagesGateway.sendFriendRequestRejected(request.fromId, {
+					request: updatedRequest,
+					rejecter: {
+						id: userId,
+						username: request.to.username,
+						avatar: request.to.avatar,
+					},
+				})
+				return updatedRequest
+			}
+
+			return updatedRequest
+		} catch (error) {
+			this.logger.error(`Error handling friend request: ${error.message}`, error.stack, 'UsersService')
+			throw error
+		}
 	}
 
 	// 获取好友列表
@@ -301,7 +379,6 @@ export class UsersService {
 					select: {
 						id: true,
 						username: true,
-						name: true,
 						avatar: true,
 					},
 				},
@@ -310,9 +387,11 @@ export class UsersService {
 	}
 
 	// 获取好友请求列表
-	async getFriendRequests(status?: string) {
+	async getFriendRequests(userId: number, status?: string) {
+		this.logger.debug(`Getting friend requests for user: ${userId} with status: ${status}`, 'UsersService')
 		return this.prisma.friendRequest.findMany({
 			where: {
+				toId: userId,
 				...(status && { status: status as any }),
 			},
 			include: {
@@ -320,7 +399,6 @@ export class UsersService {
 					select: {
 						id: true,
 						username: true,
-						name: true,
 						avatar: true,
 					},
 				},
@@ -328,7 +406,6 @@ export class UsersService {
 					select: {
 						id: true,
 						username: true,
-						name: true,
 						avatar: true,
 					},
 				},
@@ -350,7 +427,6 @@ export class UsersService {
 			select: {
 				id: true,
 				username: true,
-				name: true,
 				avatar: true,
 				createdAt: true,
 			},
@@ -369,7 +445,6 @@ export class UsersService {
 					select: {
 						id: true,
 						username: true,
-						name: true,
 						avatar: true,
 					},
 				},

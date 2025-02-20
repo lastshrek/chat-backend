@@ -20,6 +20,7 @@ import { CreateUserDto, LoginDto } from './users/dto/user.dto'
 import { ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { WebSocketAdapter } from './common/adapters/ws-adapter'
+import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule)
@@ -41,6 +42,9 @@ async function bootstrap() {
 	app.useGlobalInterceptors(new TransformInterceptor())
 	// 全局使用异常过滤器
 	app.useGlobalFilters(new HttpExceptionFilter())
+
+	// 注册全局守卫
+	app.useGlobalGuards(app.get(GlobalJwtAuthGuard))
 
 	const config = new DocumentBuilder()
 		.setTitle('Chat API')

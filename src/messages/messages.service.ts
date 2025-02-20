@@ -4,13 +4,15 @@ import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto, MessageMeta
 import { MessageStatus, MessageType, Prisma } from '@prisma/client'
 import { MessagesEventsService } from './messages-events.service'
 import { RedisService } from '../redis/redis.service'
+import { LoggerService } from '../common/services/logger.service'
 
 @Injectable()
 export class MessagesService {
 	constructor(
 		private readonly prisma: PrismaService,
 		private readonly redis: RedisService,
-		private readonly eventsService: MessagesEventsService
+		private readonly eventsService: MessagesEventsService,
+		private readonly logger: LoggerService
 	) {}
 
 	private validateMessageMetadata(type: MessageType, metadata?: MessageMetadata): void {
@@ -43,28 +45,40 @@ export class MessagesService {
 		}
 	}
 
-	async create(createMessageDto: CreateMessageDto) {
-		const { content, type, metadata, senderId, receiverId, chatId, status } = createMessageDto
-
-		// 验证消息元数据
-		this.validateMessageMetadata(type, metadata)
-
-		const jsonMetadata: Prisma.JsonValue = metadata ? JSON.parse(JSON.stringify(metadata)) : {}
-
+	async create(data: {
+		chatId: number
+		senderId: number
+		receiverId: number
+		type: MessageType
+		content: string
+		metadata?: any
+		status?: MessageStatus
+	}) {
 		return this.prisma.message.create({
 			data: {
-				content,
-				type,
-				metadata: jsonMetadata,
-				senderId,
-				receiverId,
-				chatId,
-				status: status || MessageStatus.SENT,
+				chatId: data.chatId,
+				senderId: data.senderId,
+				receiverId: data.receiverId,
+				type: data.type,
+				content: data.content,
+				metadata: data.metadata,
+				status: data.status || MessageStatus.SENT,
 			},
 			include: {
-				sender: true,
-				receiver: true,
-				chat: true,
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				receiver: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
 			},
 		})
 	}
@@ -209,7 +223,6 @@ export class MessagesService {
 							select: {
 								id: true,
 								username: true,
-								name: true,
 								avatar: true,
 							},
 						},
@@ -226,7 +239,6 @@ export class MessagesService {
 
 		return chats.map(chat => ({
 			...chat,
-			// 对于直接聊天，找出另一个用户
 			otherUser: chat.type === 'DIRECT' ? chat.participants.find(p => p.userId !== userId)?.user : null,
 			lastMessage: chat.messages[0],
 		}))
@@ -302,7 +314,6 @@ export class MessagesService {
 					select: {
 						id: true,
 						username: true,
-						name: true,
 						avatar: true,
 					},
 				},

@@ -7,6 +7,7 @@ import { MessagesEventsService } from './messages-events.service'
 import { UsersModule } from '../users/users.module'
 import { PrismaService } from '../prisma/prisma.service'
 import { WsAuthGuard } from '../common/guards/ws-auth.guard'
+import { MinioService } from '../common/services/minio.service'
 
 @Module({
 	imports: [
@@ -19,7 +20,7 @@ import { WsAuthGuard } from '../common/guards/ws-auth.guard'
 		}),
 	],
 	controllers: [MessagesController],
-	providers: [MessagesService, MessagesGateway, MessagesEventsService, PrismaService, WsAuthGuard],
+	providers: [MessagesService, MessagesGateway, MessagesEventsService, PrismaService, WsAuthGuard, MinioService],
 	exports: [MessagesService, MessagesGateway],
 })
 export class MessagesModule {}

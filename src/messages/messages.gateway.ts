@@ -4,6 +4,8 @@ import {
 	SubscribeMessage,
 	OnGatewayConnection,
 	OnGatewayDisconnect,
+	MessageBody,
+	ConnectedSocket,
 } from '@nestjs/websockets'
 import { OnModuleInit, Inject, forwardRef } from '@nestjs/common'
 import { Server, Socket } from 'socket.io'
@@ -13,6 +15,7 @@ import { MessagesEventsService } from './messages-events.service'
 import { LoggerService } from '../common/services/logger.service'
 import { WebSocketEvent } from './types/events'
 import { PrismaService } from '../prisma/prisma.service'
+import { MessageType } from '@prisma/client'
 
 @WebSocketGateway({
 	cors: {
@@ -123,43 +126,152 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 		return { event: 'left', data: { userId: user.sub, chatId } }
 	}
 
-	@SubscribeMessage('sendMessage')
-	async handleMessage(client: Socket, payload: any) {
+	@SubscribeMessage('message')
+	async handleMessage(
+		@MessageBody()
+		data: {
+			chatId: number
+			receiverId: number
+			type: MessageType
+			content: string
+			tempId: number
+			metadata?: any
+		},
+		@ConnectedSocket() client: Socket
+	) {
 		const user = client.data.user
-		this.logger.debug(`Message from user ${user.sub}: ${JSON.stringify(payload)}`, 'WebSocket')
-
-		// 确保发送者ID与token中的用户ID匹配
-		if (payload.senderId !== user.sub) {
-			throw new Error('Unauthorized message sender')
+		if (!user) {
+			throw new Error('Unauthorized')
 		}
 
+		this.logger.debug(`Message from user ${user.sub}: ${JSON.stringify(data)}`, 'MessagesGateway')
+
 		try {
+			// 创建消息
 			const message = await this.messagesService.create({
-				...payload,
+				chatId: data.chatId,
 				senderId: user.sub,
+				receiverId: data.receiverId,
+				type: data.type,
+				content: data.content,
+				metadata: data.metadata,
 			})
 
-			// 发送到聊天室
-			this.server.to(`chat_${payload.chatId}`).emit('newMessage', message)
+			// 1. 发送给聊天室所有成员
+			this.server.to(`chat_${data.chatId}`).emit('message', {
+				type: 'message',
+				data: message,
+				timestamp: new Date(),
+			})
 
-			// 发送给接收者
-			this.server.to(`user_${payload.receiverId}`).emit('newMessage', message)
+			// 2. 同时发送给接收者的个人房间
+			this.server.to(`user_${data.receiverId}`).emit('message', {
+				type: 'message',
+				data: message,
+				timestamp: new Date(),
+			})
 
-			return { event: 'messageSent', data: message }
+			// 3. 发送成功状态给发送者
+			client.emit('messageSent', {
+				type: 'messageSent',
+				data: {
+					tempId: data.tempId,
+					message: {
+						id: message.id,
+						chatId: message.chatId,
+						senderId: message.senderId,
+						receiverId: message.receiverId,
+						type: message.type,
+						content: message.content,
+						status: 'sent',
+						createdAt: message.createdAt,
+						sender: message.sender,
+						receiver: message.receiver,
+					},
+				},
+				timestamp: new Date(),
+			})
+
+			// 4. 检查接收者是否在线并处理送达状态
+			const isReceiverOnline = await this.messagesService.isUserOnline(data.receiverId)
+			if (isReceiverOnline) {
+				this.logger.debug(`Receiver ${data.receiverId} is online, sending delivered status`, 'MessagesGateway')
+
+				// 发送已送达状态给发送者
+				this.server.to(`user_${user.sub}`).emit('messageDelivered', {
+					type: 'messageDelivered',
+					data: {
+						tempId: data.tempId,
+						messageId: message.id,
+						status: 'delivered',
+					},
+					timestamp: new Date(),
+				})
+			} else {
+				this.logger.debug(`Receiver ${data.receiverId} is offline`, 'MessagesGateway')
+			}
+
+			return message
 		} catch (error) {
-			this.logger.error(`Error sending message: ${error.message}`, error.stack, 'WebSocket')
-			return { event: 'error', data: error.message }
+			this.logger.error(`Error sending message: ${error.message}`, error.stack, 'MessagesGateway')
+
+			// 发送失败状态给发送者
+			client.emit('messageError', {
+				type: 'messageError',
+				data: {
+					tempId: data.tempId,
+					error: error.message,
+					originalMessage: data,
+				},
+				timestamp: new Date(),
+			})
+			throw error
 		}
 	}
 
 	@SubscribeMessage('typing')
-	handleTyping(client: Socket, { chatId, userId }: { chatId: number; userId: number }) {
-		client.broadcast.to(`chat_${chatId}`).emit('userTyping', { userId, chatId })
+	async handleTyping(@MessageBody() data: { chatId: number; userId: number }, @ConnectedSocket() client: Socket) {
+		this.logger.debug(`User ${data.userId} is typing in chat ${data.chatId}`, 'MessagesGateway')
+
+		// 检查房间信息
+		const room = this.server.sockets.adapter.rooms.get(`chat_${data.chatId}`)
+		const sockets = Array.from(room || [])
+
+		this.logger.debug(
+			`Room chat_${data.chatId} has ${sockets.length} clients: ${sockets.join(', ')}`,
+			'MessagesGateway'
+		)
+
+		// 使用 server.to() 直接广播
+		this.server.to(`chat_${data.chatId}`).emit('userTyping', {
+			type: 'userTyping',
+			data: {
+				userId: data.userId,
+				chatId: data.chatId,
+			},
+			timestamp: new Date(),
+		})
+
+		// 记录发送的事件
+		this.logger.debug(`Sent userTyping event to chat ${data.chatId} for user ${data.userId}`, 'MessagesGateway')
 	}
 
 	@SubscribeMessage('stopTyping')
-	handleStopTyping(client: Socket, { chatId, userId }: { chatId: number; userId: number }) {
-		client.broadcast.to(`chat_${chatId}`).emit('userStopTyping', { userId, chatId })
+	async handleStopTyping(@MessageBody() data: { chatId: number; userId: number }, @ConnectedSocket() client: Socket) {
+		this.logger.debug(`User ${data.userId} stopped typing in chat ${data.chatId}`, 'MessagesGateway')
+
+		// 使用 server.to() 直接广播
+		this.server.to(`chat_${data.chatId}`).emit('userStopTyping', {
+			type: 'userStopTyping',
+			data: {
+				userId: data.userId,
+				chatId: data.chatId,
+			},
+			timestamp: new Date(),
+		})
+
+		// 记录发送的事件
+		this.logger.debug(`Sent userStopTyping event to chat ${data.chatId} for user ${data.userId}`, 'MessagesGateway')
 	}
 
 	// 用于从其他服务发送消息
@@ -191,10 +303,44 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 	}
 
 	// 发送好友请求接受通知
-	async sendFriendRequestAccepted(toUserId: number, data: any) {
-		this.server.to(`user_${toUserId}`).emit(WebSocketEvent.FRIEND_REQUEST_ACCEPTED, {
+	async sendFriendRequestAccepted(data: {
+		fromUserId: number // 发送请求的用户
+		toUserId: number // 接受请求的用户
+		request: any
+		chat: any
+	}) {
+		this.logger.debug(
+			`Sending friend request accepted notification to users ${data.fromUserId} and ${data.toUserId}`,
+			'MessagesGateway'
+		)
+
+		// 给发送请求的用户发送通知
+		this.server.to(`user_${data.fromUserId}`).emit(WebSocketEvent.FRIEND_REQUEST_ACCEPTED, {
 			type: WebSocketEvent.FRIEND_REQUEST_ACCEPTED,
-			data,
+			data: {
+				request: data.request,
+				accepter: {
+					id: data.toUserId,
+					username: data.request.to.username,
+					avatar: data.request.to.avatar,
+				},
+				chat: data.chat,
+			},
+			timestamp: new Date(),
+		})
+
+		// 给接受请求的用户发送通知
+		this.server.to(`user_${data.toUserId}`).emit(WebSocketEvent.FRIEND_REQUEST_ACCEPTED, {
+			type: WebSocketEvent.FRIEND_REQUEST_ACCEPTED,
+			data: {
+				request: data.request,
+				friend: {
+					id: data.fromUserId,
+					username: data.request.from.username,
+					avatar: data.request.from.avatar,
+				},
+				chat: data.chat,
+			},
 			timestamp: new Date(),
 		})
 	}

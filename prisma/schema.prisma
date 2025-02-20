@@ -11,25 +11,23 @@ model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
   password  String
-  name      String?
   avatar    String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // 关系
-  sentMessages           Message[]         @relation("SentMessages")
-  receivedMessages       Message[]         @relation("ReceivedMessages")
-  chats                  ChatParticipant[]
-  // 好友关系
-  sentFriendRequests     FriendRequest[]   @relation("SentFriendRequests")
-  receivedFriendRequests FriendRequest[]   @relation("ReceivedFriendRequests")
-  friends                Friend[]          @relation("UserFriends")
-  friendsOf              Friend[]          @relation("FriendsOfUser")
+  // 关系字段
+  sentMessages     Message[]         @relation("SentMessages")
+  receivedMessages Message[]         @relation("ReceivedMessages")
+  sentRequests     FriendRequest[]   @relation("SentFriendRequests")
+  receivedRequests FriendRequest[]   @relation("ReceivedFriendRequests")
+  friends          Friend[]          @relation("UserFriends")
+  friendsOf        Friend[]          @relation("FriendedByUsers")
+  chats            ChatParticipant[]
 }
 
 model Message {
   id        Int           @id @default(autoincrement())
-  content   String
+  content   String        @db.Text // 使用 Text 类型，不限制长度
   type      MessageType   @default(TEXT)
   status    MessageStatus @default(SENT)
   metadata  Json? // 存储不同类型消息的额外信息
@@ -95,8 +93,8 @@ model Friend {
   createdAt DateTime @default(now())
 
   // 关系
-  user   User @relation("UserFriends", fields: [userId], references: [id])
-  friend User @relation("FriendsOfUser", fields: [friendId], references: [id])
+  user   User @relation("UserFriends", fields: [userId], references: [id], map: "Friend_user_fkey")
+  friend User @relation("FriendedByUsers", fields: [friendId], references: [id], map: "Friend_friend_fkey")
 
   @@unique([userId, friendId])
 }

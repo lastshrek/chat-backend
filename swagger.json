@@ -286,6 +286,20 @@
         ]
       }
     },
+    "/messages/upload": {
+      "post": {
+        "operationId": "MessagesController_uploadFile",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "messages"
+        ]
+      }
+    },
     "/users/register": {
       "post": {
         "operationId": "UsersController_create",
@@ -342,8 +356,8 @@
         "summary": "用户登出",
         "parameters": [],
         "responses": {
-          "200": {
-            "description": "登出成功"
+          "201": {
+            "description": ""
           }
         },
         "tags": [
@@ -351,20 +365,11 @@
         ]
       }
     },
-    "/users/{id}/friend-requests": {
+    "/users/friend-requests": {
       "post": {
         "operationId": "UsersController_sendFriendRequest",
         "summary": "发送好友请求",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
@@ -378,6 +383,38 @@
         "responses": {
           "201": {
             "description": "请求发送成功"
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "UsersController_getFriendRequests",
+        "summary": "获取发给我的好友请求",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "PENDING",
+                "ACCEPTED",
+                "REJECTED"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功"
           }
         },
         "tags": [
@@ -416,23 +453,19 @@
         },
         "tags": [
           "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
         ]
       }
     },
-    "/users/{id}/friends": {
+    "/users/friends": {
       "get": {
         "operationId": "UsersController_getFriends",
         "summary": "获取好友列表",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
             "description": "获取成功"
@@ -440,6 +473,11 @@
         },
         "tags": [
           "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
         ]
       }
     },
@@ -464,35 +502,11 @@
         },
         "tags": [
           "users"
-        ]
-      }
-    },
-    "/users/friend-requests": {
-      "get": {
-        "operationId": "UsersController_getFriendRequests",
-        "summary": "获取所有好友请求",
-        "parameters": [
-          {
-            "name": "status",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "enum": [
-                "PENDING",
-                "ACCEPTED",
-                "REJECTED"
-              ],
-              "type": "string"
-            }
-          }
         ],
-        "responses": {
-          "200": {
-            "description": "获取成功"
+        "security": [
+          {
+            "bearer": []
           }
-        },
-        "tags": [
-          "users"
         ]
       }
     },

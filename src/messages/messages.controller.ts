@@ -1,14 +1,17 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common'
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { MessagesService } from './messages.service'
 import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto } from './dto/messages.dto'
 import { MessageStatus, MessageType } from '@prisma/client'
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger'
 import { Response } from '../common/interfaces/response.interface'
+import { FileInterceptor } from '@nestjs/platform-express'
+import { MinioService } from '../common/services/minio.service'
+import { Express } from 'express'
 
 @ApiTags('messages')
 @Controller('messages')
 export class MessagesController {
-	constructor(private readonly messagesService: MessagesService) {}
+	constructor(private readonly messagesService: MessagesService, private readonly minioService: MinioService) {}
 
 	@Post()
 	@ApiOperation({ summary: '创建新消息' })
@@ -108,5 +111,17 @@ export class MessagesController {
 	@ApiResponse({ status: 201, description: '聊天创建成功' })
 	async createChat(@Body() data: { userIds: number[] }) {
 		return this.messagesService.createChat(data.userIds)
+	}
+
+	@Post('upload')
+	@UseInterceptors(FileInterceptor('file'))
+	async uploadFile(@UploadedFile() file: Express.Multer.File, @Body('type') type: 'voice' | 'image' | 'video') {
+		const result = await this.minioService.uploadFile(file.buffer, type, {
+			'original-name': file.originalname,
+			'content-type': file.mimetype,
+			'file-size': file.size.toString(),
+		})
+
+		return result
 	}
 }

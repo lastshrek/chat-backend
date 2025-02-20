@@ -10,8 +10,7 @@ async function main() {
 		create: {
 			username: 'user1',
 			password: 'password123',
-			name: 'User One',
-			avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=user1',
+			avatar: 'https://api.dicebear.com/9.x/pixel-art-neutral/svg?seed=user1',
 		},
 	})
 
@@ -22,8 +21,7 @@ async function main() {
 		create: {
 			username: 'user2',
 			password: 'password123',
-			name: 'User Two',
-			avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=user2',
+			avatar: 'https://api.dicebear.com/9.x/pixel-art-neutral/svg?seed=user2',
 		},
 	})
 
