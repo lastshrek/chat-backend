@@ -10,7 +10,7 @@ import {
 	BadRequestException,
 	UseGuards,
 } from '@nestjs/common'
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth, ApiParam } from '@nestjs/swagger'
 import { UsersService } from './users.service'
 import { CreateUserDto, LoginDto } from './dto/user.dto'
 import { CreateFriendRequestDto, UpdateFriendRequestDto } from './dto/friend.dto'
@@ -93,5 +93,61 @@ export class UsersController {
 	@ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'ACCEPTED', 'REJECTED'] })
 	async getFriendRequests(@Request() req, @Query('status') status?: string) {
 		return this.usersService.getFriendRequests(req.user.sub, status)
+	}
+
+	@Get('profile')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取当前用户信息' })
+	@ApiResponse({
+		status: 200,
+		description: '获取成功',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'object',
+					properties: {
+						id: { type: 'number' },
+						username: { type: 'string' },
+						avatar: { type: 'string' },
+						createdAt: { type: 'string', format: 'date-time' },
+						updatedAt: { type: 'string', format: 'date-time' },
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getProfile(@Request() req) {
+		return this.usersService.findById(req.user.sub)
+	}
+
+	@Get(':id')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取指定用户信息' })
+	@ApiParam({ name: 'id', description: '用户ID' })
+	@ApiResponse({
+		status: 200,
+		description: '获取成功',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'object',
+					properties: {
+						id: { type: 'number' },
+						username: { type: 'string' },
+						avatar: { type: 'string' },
+						createdAt: { type: 'string', format: 'date-time' },
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getUserInfo(@Param('id') id: string) {
+		return this.usersService.findById(+id, true) // true 表示排除敏感信息
 	}
 }

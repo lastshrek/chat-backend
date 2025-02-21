@@ -1,12 +1,25 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UploadedFile, UseInterceptors } from '@nestjs/common'
+import {
+	Controller,
+	Get,
+	Post,
+	Body,
+	Patch,
+	Param,
+	Delete,
+	Query,
+	UploadedFile,
+	UseInterceptors,
+	UseGuards,
+} from '@nestjs/common'
 import { MessagesService } from './messages.service'
 import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto } from './dto/messages.dto'
 import { MessageStatus, MessageType } from '@prisma/client'
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger'
 import { Response } from '../common/interfaces/response.interface'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { MinioService } from '../common/services/minio.service'
 import { Express } from 'express'
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 
 @ApiTags('messages')
 @Controller('messages')
@@ -123,5 +136,45 @@ export class MessagesController {
 		})
 
 		return result
+	}
+
+	@Get('chats/:id')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取聊天详情' })
+	@ApiParam({ name: 'id', description: '聊天ID' })
+	@ApiResponse({
+		status: 200,
+		description: '获取成功',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'object',
+					properties: {
+						id: { type: 'number' },
+						name: { type: 'string' },
+						type: { type: 'string', enum: ['DIRECT', 'GROUP'] },
+						participants: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									id: { type: 'number' },
+									username: { type: 'string' },
+									avatar: { type: 'string' },
+								},
+							},
+						},
+						createdAt: { type: 'string', format: 'date-time' },
+						updatedAt: { type: 'string', format: 'date-time' },
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getChatById(@Param('id') id: string) {
+		return this.messagesService.getChatById(+id)
 	}
 }

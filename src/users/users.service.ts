@@ -372,18 +372,60 @@ export class UsersService {
 
 	// 获取好友列表
 	async getFriends(userId: number) {
-		return this.prisma.friend.findMany({
-			where: { userId },
-			include: {
-				friend: {
-					select: {
-						id: true,
-						username: true,
-						avatar: true,
+		return this.prisma.friend
+			.findMany({
+				where: { userId },
+				select: {
+					friendId: true,
+					friend: {
+						select: {
+							id: true,
+							username: true,
+							avatar: true,
+						},
 					},
 				},
-			},
-		})
+			})
+			.then(async friends => {
+				// 为每个好友关系查找或创建聊天
+				const friendsWithChat = await Promise.all(
+					friends.map(async friend => {
+						// 查找现有的直接聊天
+						const chat = await this.prisma.chat.findFirst({
+							where: {
+								type: 'DIRECT',
+								AND: [
+									{
+										participants: {
+											some: { userId },
+										},
+									},
+									{
+										participants: {
+											some: { userId: friend.friendId },
+										},
+									},
+								],
+							},
+							select: {
+								id: true,
+								type: true,
+							},
+						})
+
+						return {
+							friendId: friend.friendId,
+							friend: {
+								...friend.friend,
+								chatId: chat?.id, // 把 chatId 放到 friend 对象里
+								chatType: chat?.type,
+							},
+						}
+					})
+				)
+
+				return friendsWithChat
+			})
 	}
 
 	// 获取好友请求列表
@@ -453,5 +495,29 @@ export class UsersService {
 				createdAt: 'desc',
 			},
 		})
+	}
+
+	async findById(id: number, excludeSensitive = false) {
+		const user = await this.prisma.user.findUnique({
+			where: { id },
+			select: {
+				id: true,
+				username: true,
+				avatar: true,
+				createdAt: true,
+				updatedAt: !excludeSensitive,
+				// 如果不是排除敏感信息，则返回更多字段
+				...(!excludeSensitive &&
+					{
+						// 可以添加其他敏感字段
+					}),
+			},
+		})
+
+		if (!user) {
+			throw new NotFoundException('User not found')
+		}
+
+		return user
 	}
 }

@@ -59,14 +59,14 @@ export class MinioService {
 					.toBuffer()
 
 				// 上传原图
-				await this.minioClient.putObject(this.bucketName, fileName, file, {
+				await this.minioClient.putObject(this.bucketName, fileName, file, file.length, {
 					'Content-Type': this.getMimeType(type),
 					...metadata,
 				})
 
 				// 上传缩略图
 				const thumbnailFileName = `thumbnails/${fileName}`
-				await this.minioClient.putObject(this.bucketName, thumbnailFileName, thumbnailBuffer, {
+				await this.minioClient.putObject(this.bucketName, thumbnailFileName, thumbnailBuffer, thumbnailBuffer.length, {
 					'Content-Type': 'image/jpeg',
 					'X-Amz-Meta-Original-Image': fileName,
 				})
@@ -84,7 +84,7 @@ export class MinioService {
 				}
 			} else {
 				// 处理其他类型文件
-				await this.minioClient.putObject(this.bucketName, fileName, file, {
+				await this.minioClient.putObject(this.bucketName, fileName, file, file.length, {
 					'Content-Type': this.getMimeType(type),
 					...metadata,
 				})

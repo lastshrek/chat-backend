@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common'
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto, MessageMetadata } from './dto/messages.dto'
 import { MessageStatus, MessageType, Prisma } from '@prisma/client'
@@ -319,5 +319,57 @@ export class MessagesService {
 				},
 			},
 		})
+	}
+
+	async getChatById(chatId: number) {
+		const chat = await this.prisma.chat.findUnique({
+			where: { id: chatId },
+			include: {
+				participants: {
+					include: {
+						user: {
+							select: {
+								id: true,
+								username: true,
+								avatar: true,
+							},
+						},
+					},
+				},
+				messages: {
+					take: 1,
+					orderBy: {
+						createdAt: 'desc',
+					},
+					include: {
+						sender: {
+							select: {
+								id: true,
+								username: true,
+								avatar: true,
+							},
+						},
+					},
+				},
+			},
+		})
+
+		if (!chat) {
+			throw new NotFoundException('Chat not found')
+		}
+
+		return {
+			id: chat.id,
+			name: chat.name,
+			type: chat.type,
+			participants: chat.participants.map(p => ({
+				id: p.user.id,
+				username: p.user.username,
+				avatar: p.user.avatar,
+			})),
+			lastMessage: chat.messages[0] || null,
+			createdAt: chat.createdAt,
+			updatedAt: chat.updatedAt,
+		}
 	}
 }

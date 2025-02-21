@@ -157,19 +157,21 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 				metadata: data.metadata,
 			})
 
-			// 1. 发送给聊天室所有成员
-			this.server.to(`chat_${data.chatId}`).emit('message', {
+			// 1. 只发送给聊天室其他成员
+			client.to(`chat_${data.chatId}`).emit('message', {
 				type: 'message',
 				data: message,
 				timestamp: new Date(),
 			})
 
-			// 2. 同时发送给接收者的个人房间
-			this.server.to(`user_${data.receiverId}`).emit('message', {
-				type: 'message',
-				data: message,
-				timestamp: new Date(),
-			})
+			// 2. 同时发送给接收者的个人房间（如果接收者不在聊天室）
+			if (!this.server.sockets.adapter.rooms.get(`chat_${data.chatId}`)?.has(client.id)) {
+				this.server.to(`user_${data.receiverId}`).emit('message', {
+					type: 'message',
+					data: message,
+					timestamp: new Date(),
+				})
+			}
 
 			// 3. 发送成功状态给发送者
 			client.emit('messageSent', {
@@ -198,7 +200,7 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 				this.logger.debug(`Receiver ${data.receiverId} is online, sending delivered status`, 'MessagesGateway')
 
 				// 发送已送达状态给发送者
-				this.server.to(`user_${user.sub}`).emit('messageDelivered', {
+				client.emit('messageDelivered', {
 					type: 'messageDelivered',
 					data: {
 						tempId: data.tempId,
@@ -242,8 +244,8 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 			'MessagesGateway'
 		)
 
-		// 使用 server.to() 直接广播
-		this.server.to(`chat_${data.chatId}`).emit('userTyping', {
+		// 广播给房间内除了发送者之外的其他用户
+		client.to(`chat_${data.chatId}`).emit('userTyping', {
 			type: 'userTyping',
 			data: {
 				userId: data.userId,
@@ -252,16 +254,18 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 			timestamp: new Date(),
 		})
 
-		// 记录发送的事件
-		this.logger.debug(`Sent userTyping event to chat ${data.chatId} for user ${data.userId}`, 'MessagesGateway')
+		this.logger.debug(
+			`Sent userTyping event to other users in chat ${data.chatId} for user ${data.userId}`,
+			'MessagesGateway'
+		)
 	}
 
 	@SubscribeMessage('stopTyping')
 	async handleStopTyping(@MessageBody() data: { chatId: number; userId: number }, @ConnectedSocket() client: Socket) {
 		this.logger.debug(`User ${data.userId} stopped typing in chat ${data.chatId}`, 'MessagesGateway')
 
-		// 使用 server.to() 直接广播
-		this.server.to(`chat_${data.chatId}`).emit('userStopTyping', {
+		// 广播给房间内除了发送者之外的其他用户
+		client.to(`chat_${data.chatId}`).emit('userStopTyping', {
 			type: 'userStopTyping',
 			data: {
 				userId: data.userId,
@@ -270,8 +274,10 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 			timestamp: new Date(),
 		})
 
-		// 记录发送的事件
-		this.logger.debug(`Sent userStopTyping event to chat ${data.chatId} for user ${data.userId}`, 'MessagesGateway')
+		this.logger.debug(
+			`Sent userStopTyping event to other users in chat ${data.chatId} for user ${data.userId}`,
+			'MessagesGateway'
+		)
 	}
 
 	// 用于从其他服务发送消息
