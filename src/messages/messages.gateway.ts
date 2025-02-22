@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { MessageType } from '@prisma/client'
 
 @WebSocketGateway({
+	namespace: 'chat', // 确保这个命名空间与 meetings 不同
 	cors: {
 		origin: '*', // 在生产环境要改为具体域名
 		methods: ['GET', 'POST'],

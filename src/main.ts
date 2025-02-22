@@ -21,11 +21,12 @@ import { ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { WebSocketAdapter } from './common/adapters/ws-adapter'
 import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
+import { LoggerService } from './common/services/logger.service'
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule)
 
-	// 使用自定义的 WebSocket 适配器
+	// 直接设置 WebSocket 适配器
 	app.useWebSocketAdapter(new WebSocketAdapter(app))
 
 	const configService = app.get(ConfigService)
