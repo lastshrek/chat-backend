@@ -11,6 +11,7 @@ import { OrganizationsModule } from './organizations/organizations.module'
 import { LoggerMiddleware } from './common/middleware/logger.middleware'
 import { APP_GUARD } from '@nestjs/core'
 import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
+import { MeetingsModule } from './meetings/meetings.module'
 
 @Module({
 	imports: [
@@ -24,6 +25,7 @@ import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
 		RedisModule,
 		EventsModule,
 		OrganizationsModule,
+		MeetingsModule,
 	],
 	providers: [
 		AppService,

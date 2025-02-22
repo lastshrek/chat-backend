@@ -20,13 +20,15 @@ model User {
   orgId        String?
 
   // 关系字段
-  sentMessages     Message[]         @relation("SentMessages")
-  receivedMessages Message[]         @relation("ReceivedMessages")
-  sentRequests     FriendRequest[]   @relation("SentFriendRequests")
-  receivedRequests FriendRequest[]   @relation("ReceivedFriendRequests")
-  friends          Friend[]          @relation("UserFriends")
-  friendsOf        Friend[]          @relation("FriendedByUsers")
-  chats            ChatParticipant[]
+  sentMessages       Message[]            @relation("SentMessages")
+  receivedMessages   Message[]            @relation("ReceivedMessages")
+  sentRequests       FriendRequest[]      @relation("SentFriendRequests")
+  receivedRequests   FriendRequest[]      @relation("ReceivedFriendRequests")
+  friends            Friend[]             @relation("UserFriends")
+  friendsOf          Friend[]             @relation("FriendedByUsers")
+  chats              ChatParticipant[]
+  createdMeetings    Meeting[]            @relation("CreatedMeetings")
+  meetingParticipant MeetingParticipant[]
 
   @@map("User")
 }
@@ -147,4 +149,45 @@ enum FriendRequestStatus {
   PENDING
   ACCEPTED
   REJECTED
+}
+
+model Meeting {
+  id           String               @id @default(uuid())
+  title        String
+  createdBy    Int
+  creator      User                 @relation("CreatedMeetings", fields: [createdBy], references: [id])
+  status       MeetingStatus        @default(ACTIVE)
+  startTime    DateTime             @default(now())
+  endTime      DateTime?
+  participants MeetingParticipant[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@map("meetings")
+}
+
+model MeetingParticipant {
+  id        Int             @id @default(autoincrement())
+  meetingId String
+  userId    Int
+  joinTime  DateTime        @default(now())
+  leaveTime DateTime?
+  role      ParticipantRole @default(ATTENDEE)
+
+  meeting Meeting @relation(fields: [meetingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([meetingId, userId])
+  @@map("meeting_participants")
+}
+
+enum MeetingStatus {
+  ACTIVE
+  ENDED
+}
+
+enum ParticipantRole {
+  HOST
+  CO_HOST
+  ATTENDEE
 }

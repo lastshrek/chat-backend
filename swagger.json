@@ -1104,6 +1104,158 @@
           "organizations"
         ]
       }
+    },
+    "/meetings": {
+      "post": {
+        "operationId": "MeetingsController_createMeeting",
+        "summary": "创建会议",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMeetingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "会议创建成功"
+          }
+        },
+        "tags": [
+          "meetings"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "MeetingsController_getMeetings",
+        "summary": "获取会议列表",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取会议列表"
+          }
+        },
+        "tags": [
+          "meetings"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/meetings/{id}/join": {
+      "post": {
+        "operationId": "MeetingsController_joinMeeting",
+        "summary": "加入会议",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功加入会议"
+          }
+        },
+        "tags": [
+          "meetings"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/meetings/{id}/leave": {
+      "post": {
+        "operationId": "MeetingsController_leaveMeeting",
+        "summary": "离开会议",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功离开会议"
+          }
+        },
+        "tags": [
+          "meetings"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/meetings/{id}": {
+      "get": {
+        "operationId": "MeetingsController_getMeetingInfo",
+        "summary": "获取会议信息",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取会议信息"
+          }
+        },
+        "tags": [
+          "meetings"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -1482,6 +1634,18 @@
         },
         "required": [
           "status"
+        ]
+      },
+      "CreateMeetingDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "会议标题"
+          }
+        },
+        "required": [
+          "title"
         ]
       }
     }
