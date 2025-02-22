@@ -29,7 +29,6 @@ async function bootstrap() {
 	app.useWebSocketAdapter(new WebSocketAdapter(app))
 
 	const configService = app.get(ConfigService)
-	console.log('JWT_SECRET:', configService.get('JWT_SECRET'))
 
 	// 启用 CORS
 	app.enableCors({
@@ -42,9 +41,6 @@ async function bootstrap() {
 	app.useGlobalInterceptors(new TransformInterceptor())
 	// 全局使用异常过滤器
 	app.useGlobalFilters(new HttpExceptionFilter())
-
-	// 注册全局守卫
-	app.useGlobalGuards(app.get(GlobalJwtAuthGuard))
 
 	const config = new DocumentBuilder()
 		.setTitle('Chat API')

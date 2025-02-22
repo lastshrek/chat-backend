@@ -5,8 +5,8 @@
 	"scripts": {
 		"build": "nest build",
 		"format": "prettier --write \"src/**/*.ts\"",
-		"start": "ts-node-dev --respawn --transpile-only src/main.ts --watch",
-		"start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+		"start": "ts-node-dev --respawn --transpile-only --watch src src/main.ts",
+		"start:dev": "ts-node-dev --respawn --transpile-only --watch src --ignore-watch node_modules --no-notify src/main.ts",
 		"start:debug": "nest start --debug --watch",
 		"start:prod": "node dist/main",
 		"lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",

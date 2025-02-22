@@ -255,11 +255,19 @@
         "summary": "获取用户的聊天列表",
         "parameters": [
           {
-            "name": "userId",
-            "required": true,
+            "name": "limit",
+            "required": false,
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "number"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
             }
           }
         ],
@@ -270,6 +278,11 @@
         },
         "tags": [
           "messages"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
         ]
       },
       "post": {
@@ -377,6 +390,52 @@
                 }
               }
             }
+          }
+        },
+        "tags": [
+          "messages"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/messages/chat/{chatId}/messages": {
+      "get": {
+        "operationId": "MessagesController_getChatMessages",
+        "summary": "获取聊天消息历史",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "description": "聊天ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取消息历史"
           }
         },
         "tags": [
@@ -599,6 +658,160 @@
         ]
       }
     },
+    "/users/org-structure": {
+      "get": {
+        "operationId": "UsersController_getOrgStructure",
+        "summary": "获取组织架构",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功获取组织架构",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "number",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "number"
+                          },
+                          "order": {
+                            "type": "number"
+                          },
+                          "children": {
+                            "type": "array"
+                          },
+                          "users": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "avatar": {
+                                  "type": "string"
+                                },
+                                "dutyName": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "success"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/json-data": {
+      "get": {
+        "operationId": "UsersController_getUserJsonData",
+        "summary": "获取组织架构用户数据",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功获取数据",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "number",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "string"
+                          },
+                          "deptId": {
+                            "type": "string"
+                          },
+                          "dutyName": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "number"
+                          },
+                          "orgsInfo": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "type": "number"
+                                },
+                                "order": {
+                                  "type": "number"
+                                },
+                                "path": {
+                                  "type": "array"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "success"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/users/profile": {
       "get": {
         "operationId": "UsersController_getProfile",
@@ -748,6 +961,147 @@
         },
         "tags": [
           "redis"
+        ]
+      }
+    },
+    "/organizations/structure": {
+      "get": {
+        "operationId": "OrganizationsController_getStructure",
+        "summary": "获取组织架构",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "成功获取组织架构",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "number",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "number"
+                          },
+                          "order": {
+                            "type": "number"
+                          },
+                          "children": {
+                            "type": "array"
+                          },
+                          "users": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "avatar": {
+                                  "type": "string"
+                                },
+                                "dutyName": {
+                                  "type": "string"
+                                },
+                                "employeeId": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "success"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "organizations"
+        ]
+      }
+    },
+    "/organizations/{id}/users": {
+      "get": {
+        "operationId": "OrganizationsController_getDepartmentUsers",
+        "summary": "获取部门用户列表",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "部门ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取部门用户列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "number",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "string"
+                          },
+                          "dutyName": {
+                            "type": "string"
+                          },
+                          "employeeId": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "success"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "organizations"
         ]
       }
     }

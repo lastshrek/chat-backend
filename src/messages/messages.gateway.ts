@@ -19,8 +19,13 @@ import { MessageType } from '@prisma/client'
 
 @WebSocketGateway({
 	cors: {
-		origin: '*', // 在生产环境中应该限制来源
+		origin: '*', // 在生产环境要改为具体域名
+		methods: ['GET', 'POST'],
+		credentials: true,
+		allowedHeaders: ['authorization', 'content-type'],
 	},
+	transports: ['websocket', 'polling'], // 支持 WebSocket 和轮询
+	path: '/socket.io/', // 显式指定路径
 })
 export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
 	@WebSocketServer()
@@ -157,15 +162,22 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 				metadata: data.metadata,
 			})
 
-			// 1. 只发送给聊天室其他成员
-			client.to(`chat_${data.chatId}`).emit('message', {
-				type: 'message',
-				data: message,
-				timestamp: new Date(),
-			})
+			// 获取聊天室信息
+			const chatRoom = this.server.sockets.adapter.rooms.get(`chat_${data.chatId}`)
+			const receiverSocket = Array.from(this.server.sockets.sockets.values()).find(
+				socket => socket.data.user?.sub === data.receiverId
+			)
 
-			// 2. 同时发送给接收者的个人房间（如果接收者不在聊天室）
-			if (!this.server.sockets.adapter.rooms.get(`chat_${data.chatId}`)?.has(client.id)) {
+			// 1. 如果接收者在聊天室，发送给聊天室其他成员
+			if (chatRoom?.has(receiverSocket?.id)) {
+				client.to(`chat_${data.chatId}`).emit('message', {
+					type: 'message',
+					data: message,
+					timestamp: new Date(),
+				})
+			}
+			// 2. 如果接收者不在聊天室，发送到接收者的个人房间
+			else {
 				this.server.to(`user_${data.receiverId}`).emit('message', {
 					type: 'message',
 					data: message,
@@ -198,8 +210,6 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 			const isReceiverOnline = await this.messagesService.isUserOnline(data.receiverId)
 			if (isReceiverOnline) {
 				this.logger.debug(`Receiver ${data.receiverId} is online, sending delivered status`, 'MessagesGateway')
-
-				// 发送已送达状态给发送者
 				client.emit('messageDelivered', {
 					type: 'messageDelivered',
 					data: {

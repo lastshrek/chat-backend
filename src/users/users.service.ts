@@ -4,6 +4,8 @@ import {
 	ConflictException,
 	NotFoundException,
 	BadRequestException,
+	HttpException,
+	HttpStatus,
 } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { RedisService } from '../redis/redis.service'
@@ -17,6 +19,9 @@ import { MessagesGateway } from '../messages/messages.gateway'
 import { MessagesService } from '../messages/messages.service'
 import { MessageType, MessageStatus } from '@prisma/client'
 import * as bcrypt from 'bcrypt'
+import * as path from 'path'
+import * as fs from 'fs'
+import { JsonUser } from './dto/json-user.dto'
 
 @Injectable()
 export class UsersService {
@@ -412,7 +417,7 @@ export class UsersService {
 								type: true,
 							},
 						})
-
+						console.log(chat)
 						return {
 							friendId: friend.friendId,
 							friend: {
@@ -519,5 +524,98 @@ export class UsersService {
 		}
 
 		return user
+	}
+
+	async importUsers() {
+		try {
+			const filePath = path.join(process.cwd(), 'user.json')
+			const data = await fs.promises.readFile(filePath, 'utf8')
+			const users = JSON.parse(data) as JsonUser[]
+
+			// 1. 先获取所有现有用户
+			const existingUsers = await this.prisma.user.findMany({
+				where: {
+					username: {
+						in: users.map(u => u.name),
+					},
+				},
+				select: {
+					id: true,
+					username: true,
+				},
+			})
+
+			// 2. 找出需要创建的新用户
+			const existingUsernames = new Set(existingUsers.map(u => u.username))
+			const newUsers = users.filter(u => !existingUsernames.has(u.name))
+
+			// 3. 使用更长的超时时间进行事务
+			await this.prisma.$transaction(
+				async tx => {
+					// 批量创建新用户
+					if (newUsers.length > 0) {
+						const defaultPassword = 'Hby@1952'
+						const hashedPassword = await bcrypt.hash(defaultPassword, 10)
+						await tx.user.createMany({
+							data: newUsers.map(user => ({
+								username: user.name,
+								password: hashedPassword,
+								avatar: user.avatar || '',
+								employeeId: user.id,
+								dutyName: user.dutyName,
+								orgId: user.deptId,
+							})),
+							skipDuplicates: true,
+						})
+					}
+
+					// 4. 更新现有用户的组织信息
+					const updatePromises = existingUsers
+						.map(existingUser => {
+							const userData = users.find(u => u.name === existingUser.username)
+							if (userData) {
+								return tx.user.update({
+									where: { id: existingUser.id },
+									data: {
+										employeeId: userData.id,
+										dutyName: userData.dutyName,
+										orgId: userData.deptId,
+									},
+								})
+							}
+							return null
+						})
+						.filter(Boolean)
+
+					if (updatePromises.length > 0) {
+						await Promise.all(updatePromises)
+					}
+				},
+				{
+					timeout: 30000,
+				}
+			)
+
+			return {
+				code: 200,
+				message: 'Users imported successfully',
+				data: {
+					total: users.length,
+					imported: newUsers.length,
+					updated: existingUsers.length,
+					skipped: users.length - newUsers.length - existingUsers.length,
+				},
+			}
+		} catch (error) {
+			this.logger.error(`Failed to import users: ${error.message}`, error.stack)
+			throw new HttpException(
+				{
+					code: HttpStatus.INTERNAL_SERVER_ERROR,
+					message: 'Failed to import users',
+					data: null,
+				},
+				HttpStatus.INTERNAL_SERVER_ERROR
+			)
+		}
 	}
 }
