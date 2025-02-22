@@ -9,18 +9,24 @@ import {
 	Query,
 	BadRequestException,
 	UseGuards,
+	HttpException,
+	HttpStatus,
 } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth, ApiParam } from '@nestjs/swagger'
 import { UsersService } from './users.service'
 import { CreateUserDto, LoginDto } from './dto/user.dto'
 import { CreateFriendRequestDto, UpdateFriendRequestDto } from './dto/friend.dto'
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
-import { Public } from '../common/guards/global-jwt-auth.guard'
+import { Public } from '../common/decorators/public.decorator'
+import { LoggerService } from '../common/services/logger.service'
+import * as fs from 'fs'
+import * as path from 'path'
+import { JsonUser } from './dto/json-user.dto'
 
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
-	constructor(private readonly usersService: UsersService) {}
+	constructor(private readonly usersService: UsersService, private readonly logger: LoggerService) {}
 
 	@Public()
 	@Post('register')
@@ -93,6 +99,213 @@ export class UsersController {
 	@ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'ACCEPTED', 'REJECTED'] })
 	async getFriendRequests(@Request() req, @Query('status') status?: string) {
 		return this.usersService.getFriendRequests(req.user.sub, status)
+	}
+
+	@Public()
+	@Get('org-structure')
+	@ApiOperation({ summary: '获取组织架构' })
+	@ApiResponse({
+		status: 200,
+		description: '成功获取组织架构',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							id: { type: 'string' },
+							name: { type: 'string' },
+							type: { type: 'number' },
+							order: { type: 'number' },
+							children: { type: 'array' },
+							users: {
+								type: 'array',
+								items: {
+									type: 'object',
+									properties: {
+										id: { type: 'string' },
+										name: { type: 'string' },
+										avatar: { type: 'string' },
+										dutyName: { type: 'string' },
+									},
+								},
+							},
+						},
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getOrgStructure() {
+		this.logger.debug('Getting organization structure', 'UsersController')
+		try {
+			const filePath = path.join(process.cwd(), 'user.json')
+			const data = await fs.promises.readFile(filePath, 'utf8')
+			const users = JSON.parse(data) as JsonUser[]
+
+			// 创建组织结构映射
+			const orgMap = new Map<string, any>()
+
+			// 首先收集所有唯一的组织
+			users.forEach(user => {
+				user.orgsInfo.forEach(org => {
+					const fullPath = org.path
+
+					fullPath.forEach(pathItem => {
+						if (!orgMap.has(pathItem.id)) {
+							orgMap.set(pathItem.id, {
+								id: pathItem.id,
+								name: pathItem.name,
+								type: pathItem.type,
+								order: pathItem.type === 2 ? 0 : org.order,
+								children: [],
+								users: [], // 添加用户数组
+							})
+						}
+					})
+
+					// 将用户添加到其直接所属部门
+					const directDeptId = org.path[org.path.length - 1].id
+					const directDept = orgMap.get(directDeptId)
+					if (directDept && !directDept.users.some(u => u.id === user.id)) {
+						directDept.users.push({
+							id: user.id,
+							name: user.name,
+							avatar: user.avatar,
+							dutyName: user.dutyName,
+						})
+					}
+				})
+			})
+
+			// 建立组织之间的层级关系
+			users.forEach(user => {
+				user.orgsInfo.forEach(org => {
+					const path = org.path
+
+					for (let i = 0; i < path.length - 1; i++) {
+						const parentId = path[i].id
+						const childId = path[i + 1].id
+
+						const parent = orgMap.get(parentId)
+						const child = orgMap.get(childId)
+
+						if (parent && child && !parent.children.some(c => c.id === childId)) {
+							parent.children.push(child)
+						}
+					}
+				})
+			})
+
+			// 获取顶级组织
+			const rootOrgs = Array.from(orgMap.values()).filter(org => {
+				return !Array.from(orgMap.values()).some(potentialParent =>
+					potentialParent.children.some(child => child.id === org.id)
+				)
+			})
+
+			// 递归排序所有层级的children和users
+			const sortOrganizations = orgs => {
+				orgs.forEach(org => {
+					// 排序用户（按名字）
+					if (org.users.length > 0) {
+						org.users.sort((a, b) => a.name.localeCompare(b.name))
+					}
+					// 排序子部门
+					if (org.children.length > 0) {
+						org.children.sort((a, b) => a.order - b.order)
+						sortOrganizations(org.children)
+					}
+				})
+				return orgs
+			}
+
+			const sortedRootOrgs = sortOrganizations(rootOrgs)
+
+			return {
+				code: 200,
+				data: sortedRootOrgs,
+				message: 'success',
+			}
+		} catch (error) {
+			this.logger.error(`Failed to get org structure: ${error.message}`, error.stack)
+			throw new HttpException(
+				{
+					code: HttpStatus.INTERNAL_SERVER_ERROR,
+					message: 'Failed to get organization structure',
+					data: null,
+				},
+				HttpStatus.INTERNAL_SERVER_ERROR
+			)
+		}
+	}
+
+	@Public()
+	@Get('json-data')
+	@ApiOperation({ summary: '获取组织架构用户数据' })
+	@ApiResponse({
+		status: 200,
+		description: '成功获取数据',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							id: { type: 'string' },
+							name: { type: 'string' },
+							avatar: { type: 'string' },
+							deptId: { type: 'string' },
+							dutyName: { type: 'string' },
+							state: { type: 'number' },
+							orgsInfo: {
+								type: 'array',
+								items: {
+									type: 'object',
+									properties: {
+										id: { type: 'string' },
+										name: { type: 'string' },
+										type: { type: 'number' },
+										order: { type: 'number' },
+										path: { type: 'array' },
+									},
+								},
+							},
+						},
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getUserJsonData(): Promise<{ code: number; data: JsonUser[]; message: string }> {
+		this.logger.debug('Accessing public route: getUserJsonData', 'UsersController')
+		try {
+			const filePath = path.join(process.cwd(), 'user.json')
+			const data = await fs.promises.readFile(filePath, 'utf8')
+			const users = JSON.parse(data) as JsonUser[]
+
+			return {
+				code: 200,
+				data: users,
+				message: 'success',
+			}
+		} catch (error) {
+			this.logger.error(`Failed to read user.json: ${error.message}`, error.stack)
+			throw new HttpException(
+				{
+					code: HttpStatus.INTERNAL_SERVER_ERROR,
+					message: 'Failed to read user data',
+					data: null,
+				},
+				HttpStatus.INTERNAL_SERVER_ERROR
+			)
+		}
 	}
 
 	@Get('profile')

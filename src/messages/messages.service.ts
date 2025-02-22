@@ -207,7 +207,8 @@ export class MessagesService {
 		})
 	}
 
-	async getUserChats(userId: number) {
+	async getUserChats(userId: number, page = 1, limit = 20) {
+		// 1. 获取用户的所有聊天
 		const chats = await this.prisma.chat.findMany({
 			where: {
 				participants: {
@@ -233,15 +234,74 @@ export class MessagesService {
 					orderBy: {
 						createdAt: 'desc',
 					},
+					include: {
+						sender: {
+							select: {
+								id: true,
+								username: true,
+								avatar: true,
+							},
+						},
+					},
+				},
+				_count: {
+					select: {
+						messages: true,
+					},
 				},
 			},
+			orderBy: {
+				updatedAt: 'desc', // 按最后活动时间排序
+			},
+			skip: (page - 1) * limit,
+			take: limit,
 		})
 
-		return chats.map(chat => ({
-			...chat,
-			otherUser: chat.type === 'DIRECT' ? chat.participants.find(p => p.userId !== userId)?.user : null,
-			lastMessage: chat.messages[0],
-		}))
+		// 2. 获取每个聊天的未读消息数
+		const chatsWithUnread = await Promise.all(
+			chats.map(async chat => {
+				const unreadCount = await this.prisma.message.count({
+					where: {
+						chatId: chat.id,
+						receiverId: userId,
+						status: {
+							not: 'READ',
+						},
+					},
+				})
+
+				return {
+					id: chat.id,
+					name: chat.name,
+					type: chat.type,
+					participants: chat.participants.map(p => ({
+						id: p.user.id,
+						username: p.user.username,
+						avatar: p.user.avatar,
+					})),
+					otherUser: chat.type === 'DIRECT' ? chat.participants.find(p => p.userId !== userId)?.user : null,
+					lastMessage: chat.messages[0] || null,
+					unreadCount,
+					totalMessages: chat._count.messages,
+					updatedAt: chat.updatedAt,
+					createdAt: chat.createdAt,
+				}
+			})
+		)
+
+		return {
+			chats: chatsWithUnread,
+			hasMore: chatsWithUnread.length === limit,
+			total: await this.prisma.chat.count({
+				where: {
+					participants: {
+						some: {
+							userId,
+						},
+					},
+				},
+			}),
+		}
 	}
 
 	async createChat(userIds: number[]) {
@@ -370,6 +430,48 @@ export class MessagesService {
 			lastMessage: chat.messages[0] || null,
 			createdAt: chat.createdAt,
 			updatedAt: chat.updatedAt,
+		}
+	}
+
+	// 获取聊天消息历史
+	async getChatMessages(chatId: number, page = 1, limit = 20) {
+		const messages = await this.prisma.message.findMany({
+			where: {
+				chatId,
+			},
+			include: {
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				receiver: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+			orderBy: {
+				createdAt: 'desc',
+			},
+			skip: (page - 1) * limit,
+			take: limit,
+		})
+
+		const total = await this.prisma.message.count({
+			where: {
+				chatId,
+			},
+		})
+
+		return {
+			messages: messages.reverse(), // 返回正序的消息
+			hasMore: messages.length === limit,
+			total,
 		}
 	}
 }

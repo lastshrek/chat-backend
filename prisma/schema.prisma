@@ -8,12 +8,16 @@ generator client {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
-  password  String
-  avatar    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           Int           @id @default(autoincrement())
+  username     String        @unique
+  password     String
+  avatar       String?
+  employeeId   String?       @unique // 工号，可选且唯一
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  dutyName     String? // 职务名称
+  organization Organization? @relation("UserToOrg", fields: [orgId], references: [id])
+  orgId        String?
 
   // 关系字段
   sentMessages     Message[]         @relation("SentMessages")
@@ -23,6 +27,8 @@ model User {
   friends          Friend[]          @relation("UserFriends")
   friendsOf        Friend[]          @relation("FriendedByUsers")
   chats            ChatParticipant[]
+
+  @@map("User")
 }
 
 model Message {
@@ -97,6 +103,24 @@ model Friend {
   friend User @relation("FriendedByUsers", fields: [friendId], references: [id], map: "Friend_friend_fkey")
 
   @@unique([userId, friendId])
+}
+
+// 组织架构表
+model Organization {
+  id        String         @id
+  name      String
+  type      Int // 2: 公司, 1: 部门
+  order     Int            @default(0)
+  parentId  String? // 父组织ID
+  parent    Organization?  @relation("OrgToOrg", fields: [parentId], references: [id])
+  children  Organization[] @relation("OrgToOrg")
+  users     User[]         @relation("UserToOrg")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([id])
+  @@index([parentId])
+  @@map("organizations")
 }
 
 enum ChatType {

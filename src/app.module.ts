@@ -7,29 +7,30 @@ import { UsersModule } from './users/users.module'
 import { RedisModule } from './redis/redis.module'
 import { EventsModule } from './events/events.module'
 import { CommonModule } from './common/common.module'
+import { OrganizationsModule } from './organizations/organizations.module'
 import { LoggerMiddleware } from './common/middleware/logger.middleware'
+import { APP_GUARD } from '@nestjs/core'
 import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
-import { JwtModule } from '@nestjs/jwt'
 
 @Module({
 	imports: [
 		ConfigModule.forRoot({
 			isGlobal: true, // 设置为全局模块
 		}),
-		JwtModule.register({
-			secret: process.env.JWT_SECRET,
-			signOptions: { expiresIn: '30d' },
-		}),
+		CommonModule,
 		PrismaModule,
 		MessagesModule,
 		UsersModule,
 		RedisModule,
 		EventsModule,
-		CommonModule,
+		OrganizationsModule,
 	],
 	providers: [
 		AppService,
-		GlobalJwtAuthGuard, // 添加全局 JWT 守卫
+		{
+			provide: APP_GUARD,
+			useClass: GlobalJwtAuthGuard,
+		},
 	],
 })
 export class AppModule implements NestModule {

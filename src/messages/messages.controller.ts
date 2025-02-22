@@ -10,6 +10,7 @@ import {
 	UploadedFile,
 	UseInterceptors,
 	UseGuards,
+	Request,
 } from '@nestjs/common'
 import { MessagesService } from './messages.service'
 import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto } from './dto/messages.dto'
@@ -113,10 +114,14 @@ export class MessagesController {
 	}
 
 	@Get('chats')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
 	@ApiOperation({ summary: '获取用户的聊天列表' })
+	@ApiQuery({ name: 'page', required: false, type: Number })
+	@ApiQuery({ name: 'limit', required: false, type: Number })
 	@ApiResponse({ status: 200, description: '成功获取聊天列表' })
-	async getUserChats(@Query('userId') userId: string) {
-		return this.messagesService.getUserChats(+userId)
+	async getUserChats(@Request() req, @Query('page') page = '1', @Query('limit') limit = '20') {
+		return this.messagesService.getUserChats(req.user.sub, +page, +limit)
 	}
 
 	@Post('chats')
@@ -176,5 +181,17 @@ export class MessagesController {
 	})
 	async getChatById(@Param('id') id: string) {
 		return this.messagesService.getChatById(+id)
+	}
+
+	@Get('chat/:chatId/messages')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取聊天消息历史' })
+	@ApiParam({ name: 'chatId', description: '聊天ID' })
+	@ApiQuery({ name: 'page', required: false, type: Number })
+	@ApiQuery({ name: 'limit', required: false, type: Number })
+	@ApiResponse({ status: 200, description: '成功获取消息历史' })
+	async getChatMessages(@Param('chatId') chatId: string, @Query('page') page = '1', @Query('limit') limit = '20') {
+		return this.messagesService.getChatMessages(+chatId, +page, +limit)
 	}
 }
