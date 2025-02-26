@@ -30,6 +30,15 @@ model User {
   createdMeetings    Meeting[]            @relation("CreatedMeetings")
   meetingParticipant MeetingParticipant[]
 
+  // 添加文档相关的关联
+  createdDocuments       Document[]             @relation("CreatedDocuments")
+  documentOperations     DocumentOperation[]    @relation("UserOperations")
+  documentCollaborations DocumentCollaborator[] @relation("UserCollaborations")
+
+  // 用户创建和编辑的文档
+  lastEditDocuments Document[]          @relation("LastEditedDocuments")
+  DocumentOperation DocumentOperation[]
+
   @@map("User")
 }
 
@@ -112,7 +121,7 @@ model Organization {
   id        String         @id
   name      String
   type      Int // 2: 公司, 1: 部门
-  order     Int            @default(0)
+  order     Int
   parentId  String? // 父组织ID
   parent    Organization?  @relation("OrgToOrg", fields: [parentId], references: [id])
   children  Organization[] @relation("OrgToOrg")
@@ -120,7 +129,6 @@ model Organization {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  @@unique([id])
   @@index([parentId])
   @@map("organizations")
 }
@@ -190,4 +198,57 @@ enum ParticipantRole {
   HOST
   CO_HOST
   ATTENDEE
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  title     String
+  content   String?  @db.Text
+  type      String // 'text' | 'excel'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 创建者和最后编辑者
+  creatorId    Int   @default(1)
+  creator      User  @relation("CreatedDocuments", fields: [creatorId], references: [id])
+  lastEditById Int?
+  lastEditBy   User? @relation("LastEditedDocuments", fields: [lastEditById], references: [id])
+
+  // 操作记录和协作者
+  operations        DocumentOperation[]    @relation("DocumentOperations")
+  collaborators     DocumentCollaborator[] @relation("DocumentCollaborators")
+  DocumentOperation DocumentOperation[]
+
+  @@index([creatorId])
+  @@index([lastEditById])
+}
+
+model DocumentOperation {
+  id         Int      @id @default(autoincrement())
+  documentId String
+  userId     Int
+  operation  String // 操作内容
+  createdAt  DateTime @default(now())
+
+  // 关系
+  document Document @relation("DocumentOperations", fields: [documentId], references: [id])
+  user     User     @relation("UserOperations", fields: [userId], references: [id])
+  User     User     @relation(fields: [userId], references: [id])
+  Document Document @relation(fields: [documentId], references: [id])
+
+  @@index([documentId])
+  @@index([userId])
+}
+
+model DocumentCollaborator {
+  documentId String
+  userId     Int
+  role       String // 'editor' 或 'viewer'
+  joinedAt   DateTime @default(now())
+
+  document Document @relation("DocumentCollaborators", fields: [documentId], references: [id])
+  user     User     @relation("UserCollaborations", fields: [userId], references: [id])
+
+  @@id([documentId, userId])
+  @@index([userId])
 }

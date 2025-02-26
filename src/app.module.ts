@@ -10,8 +10,9 @@ import { CommonModule } from './common/common.module'
 import { OrganizationsModule } from './organizations/organizations.module'
 import { LoggerMiddleware } from './common/middleware/logger.middleware'
 import { APP_GUARD } from '@nestjs/core'
-import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
 import { MeetingsModule } from './meetings/meetings.module'
+import { DocumentsModule } from './documents/documents.module'
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 
 @Module({
 	imports: [
@@ -26,12 +27,14 @@ import { MeetingsModule } from './meetings/meetings.module'
 		EventsModule,
 		OrganizationsModule,
 		MeetingsModule,
+		DocumentsModule,
 	],
+	controllers: [],
 	providers: [
 		AppService,
 		{
 			provide: APP_GUARD,
-			useClass: GlobalJwtAuthGuard,
+			useClass: JwtAuthGuard,
 		},
 	],
 })

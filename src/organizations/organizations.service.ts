@@ -12,101 +12,75 @@ export class OrganizationsService {
 	private readonly logger = new Logger(OrganizationsService.name)
 
 	async importOrganizations() {
-		// 读取 user.json
-		const filePath = path.join(process.cwd(), 'user.json')
-		const data = await fs.promises.readFile(filePath, 'utf8')
-		const users = JSON.parse(data) as JsonUser[]
-
-		// 收集所有组织信息
-		const orgMap = new Map<string, any>()
-
-		users.forEach(user => {
-			user.orgsInfo.forEach(org => {
-				org.path.forEach(pathItem => {
-					if (!orgMap.has(pathItem.id)) {
-						orgMap.set(pathItem.id, {
-							id: pathItem.id,
-							name: pathItem.name,
-							type: pathItem.type,
-							order: pathItem.type === 2 ? 0 : org.order,
-							parentId: null, // 稍后设置
-						})
-					}
-				})
-
-				// 设置父子关系
-				for (let i = 0; i < org.path.length - 1; i++) {
-					const parentId = org.path[i].id
-					const childId = org.path[i + 1].id
-					const child = orgMap.get(childId)
-					if (child) {
-						child.parentId = parentId
-					}
-				}
-			})
-		})
-
 		try {
-			await this.prisma.$transaction(async tx => {
-				// 1. 清空现有组织数据
-				await tx.organization.deleteMany()
+			// 读取 user.json
+			const filePath = path.join(process.cwd(), 'user.json')
+			const data = await fs.promises.readFile(filePath, 'utf8')
+			const userData = JSON.parse(data)
 
-				// 2. 检查组织ID是否唯一
-				const orgIds = Array.from(orgMap.keys())
-				const uniqueOrgIds = new Set(orgIds)
-				if (orgIds.length !== uniqueOrgIds.size) {
-					throw new Error('Duplicate organization IDs found')
-				}
-
-				// 3. 创建组织
-				await tx.organization.createMany({
-					data: Array.from(orgMap.values()),
-				})
-
-				// 4. 获取所有需要更新的用户
-				const usernames = users.map(user => user.name)
-				const dbUsers = await tx.user.findMany({
-					where: {
-						username: {
-							in: usernames,
-						},
-					},
-					select: {
-						id: true,
-						username: true,
-					},
-				})
-
-				// 创建用户名到数据库ID的映射
-				const usernameToDbId = new Map(dbUsers.map(user => [user.username, user.id]))
-
-				// 5. 批量更新用户信息
-				const updates = users
-					.filter(user => usernameToDbId.has(user.name))
-					.map(user => {
-						const directOrg = user.orgsInfo[0]?.path.slice(-1)[0]
-						return tx.user.update({
-							where: { id: usernameToDbId.get(user.name) },
-							data: {
-								orgId: directOrg?.id,
-								dutyName: user.dutyName,
-								employeeId: user.id,
-							},
-						})
-					})
-
-				// 记录未找到的用户
-				const notFoundUsers = users.filter(user => !usernameToDbId.has(user.name)).map(user => user.name)
-
-				if (notFoundUsers.length > 0) {
-					this.logger.warn(`Users not found: ${notFoundUsers.join(', ')}`)
-				}
-
-				// 执行所有更新
-				await Promise.all(updates)
+			// 首先创建根组织
+			await this.prisma.organization.upsert({
+				where: { id: 'root' },
+				update: {
+					name: '中国市政华北院',
+					type: 2,
+					order: 0,
+				},
+				create: {
+					id: 'root',
+					name: '中国市政华北院',
+					type: 2,
+					order: 0,
+				},
 			})
 
-			return { message: 'Organizations imported successfully' }
+			// 收集所有组织信息
+			const orgsMap = new Map<string, any>()
+			userData.forEach(user => {
+				user.orgsInfo.forEach(org => {
+					if (!orgsMap.has(org.id)) {
+						orgsMap.set(org.id, org)
+					}
+				})
+			})
+
+			// 按层级创建组织
+			const createOrganizationsByLevel = async (level: number) => {
+				const orgsAtLevel = Array.from(orgsMap.values()).filter(org => org.path.length === level)
+
+				for (const org of orgsAtLevel) {
+					if (org.id === 'root') continue
+					const parentId = org.path[org.path.length - 2]?.id || 'root'
+
+					await this.prisma.organization.upsert({
+						where: { id: org.id },
+						update: {
+							name: org.name,
+							type: org.type,
+							order: org.order,
+							parentId,
+						},
+						create: {
+							id: org.id,
+							name: org.name,
+							type: org.type,
+							order: org.order,
+							parentId,
+						},
+					})
+				}
+
+				// 检查下一层级
+				const nextLevel = level + 1
+				if (Array.from(orgsMap.values()).some(org => org.path.length === nextLevel)) {
+					await createOrganizationsByLevel(nextLevel)
+				}
+			}
+
+			// 从第二层开始创建组织
+			await createOrganizationsByLevel(2)
+
+			return await this.prisma.organization.findMany()
 		} catch (error) {
 			this.logger.error(`Failed to import organizations: ${error.message}`, error.stack)
 			throw new Error(`Failed to import organizations: ${error.message}`)

@@ -1,72 +1,75 @@
 import { MessageStatus, MessageType } from '@prisma/client'
 import { ApiProperty, ApiPropertyOptional, getSchemaPath, ApiExtraModels } from '@nestjs/swagger'
 
-@ApiProperty({ description: '消息元数据基类' })
-export class MessageMetadata {}
+// 基础消息元数据接口
+export interface IMessageMetadata {}
 
-@ApiProperty({ description: '文本消息元数据' })
-export class TextMetadata extends MessageMetadata {
-	@ApiPropertyOptional({ description: '文本格式' })
-	format?: string
+// 文本消息元数据
+export class TextMetadata implements IMessageMetadata {
+	@ApiProperty({ description: '文本内容' })
+	content: string
 }
 
-@ApiProperty({ description: '文件消息元数据' })
-export class FileMetadata extends MessageMetadata {
+// 文件消息元数据
+export class FileMetadata implements IMessageMetadata {
 	@ApiProperty({ description: '文件名' })
-	fileName: string
+	filename: string
 
-	@ApiProperty({ description: '文件大小(bytes)' })
-	fileSize: number
+	@ApiProperty({ description: '文件大小' })
+	size: number
 
 	@ApiProperty({ description: '文件类型' })
-	mimeType: string
+	type: string
 
 	@ApiProperty({ description: '文件URL' })
 	url: string
 }
 
-@ApiProperty({ description: '语音消息元数据' })
-export class VoiceMetadata extends MessageMetadata {
-	@ApiProperty({ description: '语音时长(秒)' })
+// 语音消息元数据
+export class VoiceMetadata implements IMessageMetadata {
+	@ApiProperty({ description: '语音时长' })
 	duration: number
 
-	@ApiProperty({ description: '语音文件URL' })
+	@ApiProperty({ description: '语音URL' })
 	url: string
 }
 
-@ApiProperty({ description: '链接消息元数据' })
-export class LinkMetadata extends MessageMetadata {
+// 链接消息元数据
+export class LinkMetadata implements IMessageMetadata {
+	@ApiProperty({ description: '链接标题' })
+	title: string
+
+	@ApiProperty({ description: '链接描述' })
+	description: string
+
 	@ApiProperty({ description: '链接URL' })
 	url: string
 
-	@ApiPropertyOptional({ description: '链接标题' })
-	title?: string
-
-	@ApiPropertyOptional({ description: '链接描述' })
-	description?: string
-
-	@ApiPropertyOptional({ description: '链接缩略图' })
-	thumbnail?: string
+	@ApiProperty({ description: '链接图片' })
+	image?: string
 }
 
-@ApiProperty({ description: '图片消息元数据' })
-export class ImageMetadata extends MessageMetadata {
+// 图片消息元数据
+export class ImageMetadata implements IMessageMetadata {
+	@ApiProperty({ description: '图片URL' })
+	url: string
+
 	@ApiProperty({ description: '图片宽度' })
 	width: number
 
 	@ApiProperty({ description: '图片高度' })
 	height: number
 
-	@ApiProperty({ description: '图片URL' })
-	url: string
-
-	@ApiPropertyOptional({ description: '缩略图URL' })
+	@ApiProperty({ description: '缩略图URL' })
 	thumbnail?: string
 }
 
-@ApiProperty({ description: '视频消息元数据' })
-export class VideoMetadata extends MessageMetadata {
-	@ApiProperty({ description: '视频时长(秒)' })
+// 视频消息元数据
+export class VideoMetadata implements IMessageMetadata {
+	@ApiProperty({ description: '视频URL' })
+	url: string
+
+	@ApiProperty({ description: '视频时长' })
 	duration: number
 
 	@ApiProperty({ description: '视频宽度' })
@@ -75,13 +78,11 @@ export class VideoMetadata extends MessageMetadata {
 	@ApiProperty({ description: '视频高度' })
 	height: number
 
-	@ApiProperty({ description: '视频URL' })
-	url: string
-
-	@ApiPropertyOptional({ description: '视频缩略图' })
+	@ApiProperty({ description: '视频缩略图' })
 	thumbnail?: string
 }
 
+// 消息元数据联合类型
 export type MessageMetadata = TextMetadata | FileMetadata | VoiceMetadata | LinkMetadata | ImageMetadata | VideoMetadata
 
 @ApiExtraModels(TextMetadata, FileMetadata, VoiceMetadata, LinkMetadata, ImageMetadata, VideoMetadata)

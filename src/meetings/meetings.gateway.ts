@@ -16,20 +16,16 @@ import { Logger } from '@nestjs/common'
 	namespace: 'meetings',
 	cors: {
 		origin: '*',
-		methods: ['GET', 'POST'],
 		credentials: true,
-		allowedHeaders: ['authorization', 'content-type'],
 	},
-	transports: ['websocket', 'polling'],
-	path: '/socket.io/',
 })
 export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	@WebSocketServer()
-	server: Server
+	private server: Server
 
 	private readonly logger = new Logger(MeetingsGateway.name)
 
-	constructor(private meetingsService: MeetingsService, private readonly mediasoup: MediasoupService) {}
+	constructor(private readonly meetingsService: MeetingsService, private readonly mediasoup: MediasoupService) {}
 
 	@SubscribeMessage('join_meeting')
 	async handleJoinMeeting(@ConnectedSocket() client: Socket, @MessageBody() data: { meetingId: string }) {
@@ -193,25 +189,19 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
 	}
 
 	// 实现 OnGatewayConnection 接口
-	handleConnection(client: Socket) {
-		this.logger.log(`🟢 Client connected: ${client.id}`)
-
-		// 获取查询参数中的会议ID
-		const meetingId = client.handshake.query.meetingId as string
-		if (meetingId) {
-			this.logger.log(`📍 Client ${client.id} joining meeting: ${meetingId}`)
-		}
-
-		// 获取用户信息
-		const user = client.data?.user
-		if (user) {
-			this.logger.log(`👤 User connected: ${user.username} (${user.sub})`)
-		}
+	async handleConnection(client: Socket) {
+		this.logger.log('Client connected:', {
+			id: client.id,
+			data: client.data,
+		})
 	}
 
 	// 实现 OnGatewayDisconnect 接口
 	handleDisconnect(client: Socket) {
-		this.logger.log(`🔴 Client disconnected: ${client.id}`)
+		this.logger.log('Client disconnected:', {
+			id: client.id,
+			data: client.data,
+		})
 	}
 
 	// 修改获取参与者的方法

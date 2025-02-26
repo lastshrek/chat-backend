@@ -1,27 +1,19 @@
 import { ExecutionContext, Injectable } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { AuthGuard } from '@nestjs/passport'
-import { LoggerService } from '../services/logger.service'
-import { PUBLIC_ROUTE } from '../decorators/public.decorator'
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator'
 
 @Injectable()
 export class GlobalJwtAuthGuard extends AuthGuard('jwt') {
-	constructor(private reflector: Reflector, private logger: LoggerService) {
+	constructor(private reflector: Reflector) {
 		super()
 	}
 
 	canActivate(context: ExecutionContext) {
-		const handler = context.getHandler()
-		const className = context.getClass().name
-		const methodName = handler.name
-		const request = context.switchToHttp().getRequest()
-
-		this.logger.debug(`Request URL: ${request.method} ${request.url}`, 'GlobalJwtAuthGuard')
-		this.logger.debug(`Route: ${className}.${methodName}`, 'GlobalJwtAuthGuard')
-		this.logger.debug(`Handler: ${handler.toString()}`, 'GlobalJwtAuthGuard')
-
-		const isPublic = this.reflector.get(PUBLIC_ROUTE, handler)
-		this.logger.debug(`Is public: ${isPublic}`, 'GlobalJwtAuthGuard')
+		const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+			context.getHandler(),
+			context.getClass(),
+		])
 
 		if (isPublic) {
 			return true

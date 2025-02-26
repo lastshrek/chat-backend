@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE `Message` ADD COLUMN `metadata` JSON NULL,
-    ADD COLUMN `type` ENUM('TEXT', 'VOICE', 'FILE', 'LINK', 'IMAGE', 'VIDEO') NOT NULL DEFAULT 'TEXT';

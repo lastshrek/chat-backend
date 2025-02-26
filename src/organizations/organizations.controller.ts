@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param } from '@nestjs/common'
+import { Controller, Get, Post, Param, Body } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger'
 import { OrganizationsService } from './organizations.service'
 import { Public } from '../common/decorators/public.decorator'
@@ -80,5 +80,15 @@ export class OrganizationsController {
 	async getDepartmentUsers(@Param('id') id: string) {
 		const data = await this.organizationsService.getDepartmentUsers(id)
 		return data
+	}
+
+	@Public()
+	@Post('import')
+	async importOrganizations() {
+		const result = await this.organizationsService.importOrganizations()
+		return {
+			success: true,
+			data: result,
+		}
 	}
 }

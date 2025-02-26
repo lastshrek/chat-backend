@@ -22,12 +22,16 @@ import { ConfigService } from '@nestjs/config'
 import { WebSocketAdapter } from './common/adapters/ws-adapter'
 import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
 import { LoggerService } from './common/services/logger.service'
+import { Logger } from '@nestjs/common'
 
 async function bootstrap() {
-	const app = await NestFactory.create(AppModule)
+	const app = await NestFactory.create(AppModule, {
+		logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+	})
 
-	// 直接设置 WebSocket 适配器
-	app.useWebSocketAdapter(new WebSocketAdapter(app))
+	// 设置 WebSocket 适配器
+	const wsAdapter = new WebSocketAdapter(app)
+	app.useWebSocketAdapter(wsAdapter)
 
 	const configService = app.get(ConfigService)
 

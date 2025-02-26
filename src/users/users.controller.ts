@@ -363,4 +363,32 @@ export class UsersController {
 	async getUserInfo(@Param('id') id: string) {
 		return this.usersService.findById(+id, true) // true 表示排除敏感信息
 	}
+
+	@Public()
+	@Post('import')
+	async importUsers() {
+		const result = await this.usersService.importUsers()
+		return {
+			success: true,
+			data: result,
+		}
+	}
+
+	@Public()
+	@Post('update-avatars')
+	@ApiOperation({ summary: '更新所有用户头像' })
+	@ApiResponse({
+		status: 200,
+		description: '成功更新用户头像',
+		schema: {
+			properties: {
+				success: { type: 'boolean', example: true },
+				updatedCount: { type: 'number', example: 100 },
+				message: { type: 'string', example: 'Successfully updated avatars for 100 users' },
+			},
+		},
+	})
+	async updateUserAvatars() {
+		return this.usersService.updateUserAvatars()
+	}
 }

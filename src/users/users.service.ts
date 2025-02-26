@@ -526,18 +526,98 @@ export class UsersService {
 		return user
 	}
 
+	private generateChineseName(): string {
+		const familyNames = '赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜'
+		const givenNames = [
+			'明国华建文军平志伟东海强晓生光林',
+			'天民永志建国泽世轩玉宇鸿博',
+			'子涵浩然瀚海星辰宇航天骄',
+			'雨泽子默子轩浩宇鸿涛博涛',
+			'昊天思远安邦振国远图',
+			'鹏云志强伟泽晓峰子轩',
+			'浩然泽宇瀚海鸿志博超',
+			'思淼安然泽民昊焱志泽',
+			'晓博鸿文志强泽华子默',
+			'浩宇瀚辰远航天工博超',
+		].join('')
+
+		const familyName = familyNames[Math.floor(Math.random() * familyNames.length)]
+		const givenName1 = givenNames[Math.floor(Math.random() * givenNames.length)]
+		const givenName2 = givenNames[Math.floor(Math.random() * givenNames.length)]
+
+		return `${familyName}${givenName1}${givenName2}`
+	}
+
 	async importUsers() {
 		try {
+			// 读取 user.json
 			const filePath = path.join(process.cwd(), 'user.json')
+			this.logger.debug('Reading user.json file...')
 			const data = await fs.promises.readFile(filePath, 'utf8')
-			const users = JSON.parse(data) as JsonUser[]
+			const userData = JSON.parse(data)
+			this.logger.debug(`Found ${userData.length} users in file`)
 
-			// 1. 先获取所有现有用户
-			const existingUsers = await this.prisma.user.findMany({
+			// 清空现有用户
+			this.logger.debug('Clearing existing users...')
+			await this.prisma.user.deleteMany()
+			this.logger.debug('Existing users cleared')
+
+			const hashedPassword = await bcrypt.hash('Hby@1952', 10)
+			const usedUsernames = new Set<string>()
+			let userId = 1
+
+			// 准备所有用户数据
+			this.logger.debug('Preparing user data...')
+			const allUsers = userData.map(user => {
+				let username = this.generateChineseName()
+				while (usedUsernames.has(username)) {
+					username = this.generateChineseName()
+				}
+				console.log(username)
+				usedUsernames.add(username)
+
+				return {
+					id: userId++,
+					username,
+					password: hashedPassword,
+					employeeId: user.id,
+					orgId: user.deptId,
+					dutyName: user.dutyName || '-',
+				}
+			})
+			this.logger.debug(`Prepared ${allUsers.length} users for import`)
+
+			// 一次性创建所有用户
+			this.logger.debug('Starting bulk user creation...')
+			const startTime = Date.now()
+			const result = await this.prisma.user.createMany({
+				data: allUsers,
+				skipDuplicates: true,
+			})
+			const endTime = Date.now()
+			const timeSpent = (endTime - startTime) / 1000
+
+			this.logger.debug(`User import completed in ${timeSpent} seconds`)
+			this.logger.debug(`Successfully imported ${result.count} users`)
+
+			return {
+				message: 'Users import completed',
+				totalProcessed: userData.length,
+				successfullyImported: result.count,
+				timeSpentSeconds: timeSpent,
+			}
+		} catch (error) {
+			this.logger.error(`Failed to import users: ${error.message}`, error.stack)
+			throw new Error(`Failed to import users: ${error.message}`)
+		}
+	}
+
+	async updateUserAvatars() {
+		try {
+			// 获取所有没有头像的用户
+			const users = await this.prisma.user.findMany({
 				where: {
-					username: {
-						in: users.map(u => u.name),
-					},
+					OR: [{ avatar: null }, { avatar: '' }],
 				},
 				select: {
 					id: true,
@@ -545,77 +625,29 @@ export class UsersService {
 				},
 			})
 
-			// 2. 找出需要创建的新用户
-			const existingUsernames = new Set(existingUsers.map(u => u.username))
-			const newUsers = users.filter(u => !existingUsernames.has(u.name))
+			this.logger.debug(`Found ${users.length} users without avatars`, 'UsersService')
 
-			// 3. 使用更长的超时时间进行事务
-			await this.prisma.$transaction(
-				async tx => {
-					// 批量创建新用户
-					if (newUsers.length > 0) {
-						const defaultPassword = 'Hby@1952'
-						const hashedPassword = await bcrypt.hash(defaultPassword, 10)
-						await tx.user.createMany({
-							data: newUsers.map(user => ({
-								username: user.name,
-								password: hashedPassword,
-								avatar: user.avatar || '',
-								employeeId: user.id,
-								dutyName: user.dutyName,
-								orgId: user.deptId,
-							})),
-							skipDuplicates: true,
-						})
-					}
+			// 批量更新用户头像
+			for (const user of users) {
+				// 使用 DiceBear API 生成头像
+				const avatar = `https://api.dicebear.com/9.x/pixel-art-neutral/svg?seed=${user.username}`
 
-					// 4. 更新现有用户的组织信息
-					const updatePromises = existingUsers
-						.map(existingUser => {
-							const userData = users.find(u => u.name === existingUser.username)
-							if (userData) {
-								return tx.user.update({
-									where: { id: existingUser.id },
-									data: {
-										employeeId: userData.id,
-										dutyName: userData.dutyName,
-										orgId: userData.deptId,
-									},
-								})
-							}
-							return null
-						})
-						.filter(Boolean)
+				await this.prisma.user.update({
+					where: { id: user.id },
+					data: { avatar },
+				})
 
-					if (updatePromises.length > 0) {
-						await Promise.all(updatePromises)
-					}
-				},
-				{
-					timeout: 30000,
-				}
-			)
+				this.logger.debug(`Updated avatar for user ${user.id} (${user.username})`, 'UsersService')
+			}
 
 			return {
-				code: 200,
-				message: 'Users imported successfully',
-				data: {
-					total: users.length,
-					imported: newUsers.length,
-					updated: existingUsers.length,
-					skipped: users.length - newUsers.length - existingUsers.length,
-				},
+				success: true,
+				updatedCount: users.length,
+				message: `Successfully updated avatars for ${users.length} users`,
 			}
 		} catch (error) {
-			this.logger.error(`Failed to import users: ${error.message}`, error.stack)
-			throw new HttpException(
-				{
-					code: HttpStatus.INTERNAL_SERVER_ERROR,
-					message: 'Failed to import users',
-					data: null,
-				},
-				HttpStatus.INTERNAL_SERVER_ERROR
-			)
+			this.logger.error(`Failed to update user avatars: ${error.message}`, error.stack, 'UsersService')
+			throw new Error(`Failed to update user avatars: ${error.message}`)
 		}
 	}
 }

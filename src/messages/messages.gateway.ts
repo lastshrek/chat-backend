@@ -18,7 +18,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { MessageType } from '@prisma/client'
 
 @WebSocketGateway({
-	namespace: 'chat', // 确保这个命名空间与 meetings 不同
+	namespace: '/messages', // 确保命名空间唯一
 	cors: {
 		origin: '*', // 在生产环境要改为具体域名
 		methods: ['GET', 'POST'],
@@ -26,7 +26,6 @@ import { MessageType } from '@prisma/client'
 		allowedHeaders: ['authorization', 'content-type'],
 	},
 	transports: ['websocket', 'polling'], // 支持 WebSocket 和轮询
-	path: '/socket.io/', // 显式指定路径
 })
 export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
 	@WebSocketServer()
