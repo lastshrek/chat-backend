@@ -36,8 +36,8 @@ model User {
   documentCollaborations DocumentCollaborator[] @relation("UserCollaborations")
 
   // 用户创建和编辑的文档
-  lastEditDocuments Document[]          @relation("LastEditedDocuments")
-  DocumentOperation DocumentOperation[]
+  lastEditDocuments Document[] @relation("LastEditedDocuments")
+  Chat              Chat[]     @relation("CreatedChats")
 
   @@map("User")
 }
@@ -61,28 +61,36 @@ model Message {
 }
 
 model Chat {
-  id        Int      @id @default(autoincrement())
-  name      String?
-  type      ChatType @default(DIRECT)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  name        String? // 群聊名称，私聊为null
+  avatar      String? // 群聊头像，私聊为null
+  description String? // 群聊描述，私聊为null
+  type        ChatType @default(PRIVATE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  creatorId   Int? // 群聊创建者ID，私聊为null
+  creator     User?    @relation("CreatedChats", fields: [creatorId], references: [id])
 
   // 关系
-  messages     Message[]
   participants ChatParticipant[]
+  messages     Message[]
+
+  @@index([creatorId])
 }
 
 model ChatParticipant {
   id       Int      @id @default(autoincrement())
-  userId   Int
   chatId   Int
+  userId   Int
+  role     String   @default("MEMBER") // OWNER, ADMIN, MEMBER
   joinedAt DateTime @default(now())
 
-  // 关系
-  user User @relation(fields: [userId], references: [id])
-  chat Chat @relation(fields: [chatId], references: [id])
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, chatId])
+  @@unique([chatId, userId])
+  @@index([chatId])
+  @@index([userId])
 }
 
 // 好友请求
@@ -134,7 +142,7 @@ model Organization {
 }
 
 enum ChatType {
-  DIRECT
+  PRIVATE
   GROUP
 }
 
@@ -215,9 +223,8 @@ model Document {
   lastEditBy   User? @relation("LastEditedDocuments", fields: [lastEditById], references: [id])
 
   // 操作记录和协作者
-  operations        DocumentOperation[]    @relation("DocumentOperations")
-  collaborators     DocumentCollaborator[] @relation("DocumentCollaborators")
-  DocumentOperation DocumentOperation[]
+  operations    DocumentOperation[]    @relation("DocumentOperations")
+  collaborators DocumentCollaborator[] @relation("DocumentCollaborators")
 
   @@index([creatorId])
   @@index([lastEditById])
@@ -227,14 +234,13 @@ model DocumentOperation {
   id         Int      @id @default(autoincrement())
   documentId String
   userId     Int
-  operation  String // 操作内容
-  createdAt  DateTime @default(now())
+  operation  String   @db.Text // 存储操作的JSON
+  createdAt  DateTime @default(now()) // 记录创建时间
+  timestamp  DateTime @default(now()) // 操作发生的时间戳
 
   // 关系
-  document Document @relation("DocumentOperations", fields: [documentId], references: [id])
-  user     User     @relation("UserOperations", fields: [userId], references: [id])
-  User     User     @relation(fields: [userId], references: [id])
-  Document Document @relation(fields: [documentId], references: [id])
+  document Document @relation("DocumentOperations", fields: [documentId], references: [id], map: "DocOp_documentId_fkey")
+  user     User     @relation("UserOperations", fields: [userId], references: [id], map: "DocOp_userId_fkey")
 
   @@index([documentId])
   @@index([userId])

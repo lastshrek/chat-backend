@@ -727,4 +727,59 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 			})
 		})
 	}
+
+	// 添加群聊相关的事件处理方法
+	async sendGroupChatInvitation(userId: number, data: any) {
+		this.logger.debug(`Sending group chat invitation to user ${userId}`, 'WebSocket')
+		this.server.to(`user_${userId}`).emit(WebSocketEvent.GROUP_CHAT_INVITATION, {
+			type: WebSocketEvent.GROUP_CHAT_INVITATION,
+			data,
+			timestamp: new Date(),
+		})
+	}
+
+	async sendGroupChatUpdated(chatId: number, data: any) {
+		this.logger.debug(`Sending group chat updated notification to chat ${chatId}`, 'WebSocket')
+		this.server.to(`chat_${chatId}`).emit(WebSocketEvent.GROUP_CHAT_UPDATED, {
+			type: WebSocketEvent.GROUP_CHAT_UPDATED,
+			data,
+			timestamp: new Date(),
+		})
+	}
+
+	async sendGroupMembersAdded(chatId: number, data: any) {
+		this.logger.debug(`Sending group members added notification to chat ${chatId}`, 'WebSocket')
+		this.server.to(`chat_${chatId}`).emit(WebSocketEvent.GROUP_MEMBERS_ADDED, {
+			type: WebSocketEvent.GROUP_MEMBERS_ADDED,
+			data,
+			timestamp: new Date(),
+		})
+	}
+
+	async sendGroupMemberRemoved(chatId: number, data: any) {
+		this.logger.debug(`Sending group member removed notification to chat ${chatId}`, 'WebSocket')
+		this.server.to(`chat_${chatId}`).emit(WebSocketEvent.GROUP_MEMBER_REMOVED, {
+			type: WebSocketEvent.GROUP_MEMBER_REMOVED,
+			data,
+			timestamp: new Date(),
+		})
+	}
+
+	async sendGroupMemberRoleUpdated(chatId: number, data: any) {
+		this.logger.debug(`Sending group member role updated notification to chat ${chatId}`, 'WebSocket')
+		this.server.to(`chat_${chatId}`).emit(WebSocketEvent.GROUP_MEMBER_ROLE_UPDATED, {
+			type: WebSocketEvent.GROUP_MEMBER_ROLE_UPDATED,
+			data,
+			timestamp: new Date(),
+		})
+	}
+
+	async sendGroupChatDissolved(userId: number, data: any) {
+		this.logger.debug(`Sending group chat dissolved notification to user ${userId}`, 'WebSocket')
+		this.server.to(`user_${userId}`).emit(WebSocketEvent.GROUP_CHAT_DISSOLVED, {
+			type: WebSocketEvent.GROUP_CHAT_DISSOLVED,
+			data,
+			timestamp: new Date(),
+		})
+	}
 }

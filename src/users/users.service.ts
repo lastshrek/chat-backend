@@ -17,7 +17,7 @@ import { CreateFriendRequestDto, UpdateFriendRequestDto } from './dto/friend.dto
 import { EventsService } from '../events/events.service'
 import { MessagesGateway } from '../messages/messages.gateway'
 import { MessagesService } from '../messages/messages.service'
-import { MessageType, MessageStatus } from '@prisma/client'
+import { MessageType, MessageStatus, ChatType } from '@prisma/client'
 import * as bcrypt from 'bcrypt'
 import * as path from 'path'
 import * as fs from 'fs'
@@ -398,7 +398,7 @@ export class UsersService {
 						// 查找现有的直接聊天
 						const chat = await this.prisma.chat.findFirst({
 							where: {
-								type: 'DIRECT',
+								type: ChatType.PRIVATE,
 								AND: [
 									{
 										participants: {
@@ -649,5 +649,67 @@ export class UsersService {
 			this.logger.error(`Failed to update user avatars: ${error.message}`, error.stack, 'UsersService')
 			throw new Error(`Failed to update user avatars: ${error.message}`)
 		}
+	}
+
+	async getFriendChats(userId: number) {
+		const chats = await this.prisma.chat.findMany({
+			where: {
+				type: ChatType.PRIVATE,
+				participants: {
+					some: {
+						userId,
+					},
+				},
+			},
+			include: {
+				participants: {
+					include: {
+						user: {
+							select: {
+								id: true,
+								username: true,
+								avatar: true,
+							},
+						},
+					},
+				},
+				messages: {
+					take: 1,
+					orderBy: {
+						createdAt: 'desc',
+					},
+				},
+			},
+		})
+
+		return chats.map(chat => ({
+			id: chat.id,
+			otherUser: chat.participants.find(p => p.userId !== userId)?.user,
+			lastMessage: chat.messages[0] || null,
+		}))
+	}
+
+	async checkExistingChat(currentUserId: number, targetUserId: number) {
+		return this.prisma.chat.findFirst({
+			where: {
+				type: ChatType.PRIVATE,
+				AND: [
+					{
+						participants: {
+							some: {
+								userId: currentUserId,
+							},
+						},
+					},
+					{
+						participants: {
+							some: {
+								userId: targetUserId,
+							},
+						},
+					},
+				],
+			},
+		})
 	}
 }

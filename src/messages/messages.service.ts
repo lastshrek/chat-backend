@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto, MessageMetadata } from './dto/messages.dto'
-import { MessageStatus, MessageType, Prisma } from '@prisma/client'
+import { MessageStatus, MessageType, Prisma, ChatType } from '@prisma/client'
 import { MessagesEventsService } from './messages-events.service'
 import { RedisService } from '../redis/redis.service'
 import { LoggerService } from '../common/services/logger.service'
@@ -279,7 +279,7 @@ export class MessagesService {
 						username: p.user.username,
 						avatar: p.user.avatar,
 					})),
-					otherUser: chat.type === 'DIRECT' ? chat.participants.find(p => p.userId !== userId)?.user : null,
+					otherUser: chat.type === ChatType.PRIVATE ? chat.participants.find(p => p.userId !== userId)?.user : null,
 					lastMessage: chat.messages[0] || null,
 					unreadCount,
 					totalMessages: chat._count.messages,
@@ -308,7 +308,7 @@ export class MessagesService {
 		// 检查是否已存在这些用户之间的聊天
 		const existingChat = await this.prisma.chat.findFirst({
 			where: {
-				type: 'DIRECT',
+				type: ChatType.PRIVATE,
 				AND: userIds.map(userId => ({
 					participants: {
 						some: {
@@ -333,7 +333,7 @@ export class MessagesService {
 		// 创建新聊天
 		return this.prisma.chat.create({
 			data: {
-				type: 'DIRECT',
+				type: ChatType.PRIVATE,
 				participants: {
 					create: userIds.map(userId => ({
 						userId,
@@ -494,7 +494,7 @@ export class MessagesService {
 		// 查找现有的直接聊天
 		const existingChat = await this.prisma.chat.findFirst({
 			where: {
-				type: 'DIRECT',
+				type: ChatType.PRIVATE,
 				AND: [
 					{
 						participants: {
@@ -546,7 +546,7 @@ export class MessagesService {
 		// 创建新聊天
 		const newChat = await this.prisma.chat.create({
 			data: {
-				type: 'DIRECT',
+				type: ChatType.PRIVATE,
 				participants: {
 					create: [{ userId: currentUserId }, { userId: targetUserId }],
 				},

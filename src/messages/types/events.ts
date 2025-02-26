@@ -13,4 +13,12 @@ export enum WebSocketEvent {
 	// 状态相关
 	TYPING = 'typing',
 	STOP_TYPING = 'stop_typing',
+
+	// 群聊相关事件
+	GROUP_CHAT_INVITATION = 'groupChatInvitation',
+	GROUP_CHAT_UPDATED = 'groupChatUpdated',
+	GROUP_MEMBERS_ADDED = 'groupMembersAdded',
+	GROUP_MEMBER_REMOVED = 'groupMemberRemoved',
+	GROUP_MEMBER_ROLE_UPDATED = 'groupMemberRoleUpdated',
+	GROUP_CHAT_DISSOLVED = 'groupChatDissolved',
 }

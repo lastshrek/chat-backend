@@ -405,4 +405,42 @@ export class DocumentsService {
 			},
 		})
 	}
+
+	async getDocumentOperations(documentId: string) {
+		const operations = await this.prisma.documentOperation.findMany({
+			where: { documentId },
+			orderBy: {
+				createdAt: 'asc',
+			},
+			include: {
+				user: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+		})
+
+		return operations
+	}
+
+	async getLatestOperations(documentId: string) {
+		return this.prisma.documentOperation.findMany({
+			where: { documentId },
+			orderBy: {
+				createdAt: 'desc',
+			},
+			include: {
+				user: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+		})
+	}
 }

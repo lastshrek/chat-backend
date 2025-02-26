@@ -8,6 +8,8 @@ import { UsersModule } from '../users/users.module'
 import { PrismaService } from '../prisma/prisma.service'
 import { WsAuthGuard } from '../common/guards/ws-auth.guard'
 import { MinioService } from '../common/services/minio.service'
+import { GroupChatService } from './group-chat.service'
+import { GroupChatController } from './group-chat.controller'
 
 @Module({
 	imports: [
@@ -19,8 +21,16 @@ import { MinioService } from '../common/services/minio.service'
 			}),
 		}),
 	],
-	controllers: [MessagesController],
-	providers: [MessagesService, MessagesGateway, MessagesEventsService, PrismaService, WsAuthGuard, MinioService],
+	controllers: [MessagesController, GroupChatController],
+	providers: [
+		MessagesService,
+		MessagesGateway,
+		MessagesEventsService,
+		PrismaService,
+		WsAuthGuard,
+		MinioService,
+		GroupChatService,
+	],
 	exports: [MessagesService, MessagesGateway],
 })
 export class MessagesModule {}
