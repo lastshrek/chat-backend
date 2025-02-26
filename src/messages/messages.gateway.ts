@@ -16,6 +16,7 @@ import { LoggerService } from '../common/services/logger.service'
 import { WebSocketEvent } from './types/events'
 import { PrismaService } from '../prisma/prisma.service'
 import { MessageType } from '@prisma/client'
+import { JwtService } from '@nestjs/jwt'
 
 @WebSocketGateway({
 	namespace: '/messages', // 确保命名空间唯一
@@ -33,14 +34,47 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 
 	private userSockets: Map<number, string> = new Map() // userId -> socketId
 	private socketUsers: Map<string, number> = new Map() // socketId -> userId
+	private chatRooms: Map<string, Set<string>> = new Map() // roomName -> Set of socketIds
 
 	constructor(
 		@Inject(forwardRef(() => MessagesService))
 		private readonly messagesService: MessagesService,
 		private readonly eventsService: MessagesEventsService,
 		private readonly logger: LoggerService,
-		private readonly prisma: PrismaService
-	) {}
+		private readonly prisma: PrismaService,
+		private readonly jwtService: JwtService
+	) {
+		// 添加中间件来验证连接
+		this.server?.use((socket, next) => {
+			try {
+				let token = socket.handshake.auth.token
+
+				// 检查并移除 "Bearer " 前缀
+				if (token && token.startsWith('Bearer ')) {
+					token = token.substring(7)
+				}
+
+				if (!token) {
+					this.logger.warn('Authentication error: Token not provided', 'WebSocket')
+					return next(new Error('Authentication error: Token not provided'))
+				}
+
+				this.logger.debug(`Verifying token: ${token.substring(0, 20)}...`, 'WebSocket')
+
+				const payload = this.jwtService.verify(token, {
+					secret: process.env.JWT_SECRET,
+				})
+
+				this.logger.debug(`Token verified, payload: ${JSON.stringify(payload)}`, 'WebSocket')
+
+				socket.data.user = payload
+				next()
+			} catch (error) {
+				this.logger.error(`WebSocket authentication error: ${error.message}`, error.stack, 'WebSocket')
+				next(new Error('Authentication error'))
+			}
+		})
+	}
 
 	onModuleInit() {
 		// 订阅消息状态事件
@@ -60,24 +94,51 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 	}
 
 	async handleConnection(client: Socket) {
-		const user = client.data?.user
 		this.logger.debug(`Client connected: ${client.id}`, 'WebSocket')
 		this.logger.debug(`Auth data: ${JSON.stringify(client.handshake.auth)}`, 'WebSocket')
-		this.logger.debug(`Client data: ${JSON.stringify(client.data)}`, 'WebSocket')
-		this.logger.debug(`User data: ${JSON.stringify(user)}`, 'WebSocket')
 
-		if (user) {
-			const room = `user_${user.sub}`
+		try {
+			// 从 auth 对象中获取 token
+			let token = client.handshake.auth.token
+
+			// 检查并移除 "Bearer " 前缀
+			if (token && token.startsWith('Bearer ')) {
+				token = token.substring(7)
+			}
+
+			if (!token) {
+				this.logger.warn(`No token provided for client ${client.id}`, 'WebSocket')
+				client.disconnect()
+				return
+			}
+
+			this.logger.debug(`Verifying token: ${token.substring(0, 20)}...`, 'WebSocket')
+
+			// 验证 token
+			const payload = this.jwtService.verify(token, {
+				secret: process.env.JWT_SECRET,
+			})
+
+			this.logger.debug(`Token verified, payload: ${JSON.stringify(payload)}`, 'WebSocket')
+
+			// 保存用户信息到 socket 数据中
+			client.data.user = payload
+
+			// 用户成功认证后的处理
+			const userId = payload.sub
+			const room = `user_${userId}`
 			client.join(room)
-			this.logger.debug(`User ${user.sub} joined room ${room}`, 'WebSocket')
 
-			await this.messagesService.setUserOnline(user.sub)
-			await this.sendFriendOnline(user.sub)
+			this.logger.debug(`User ${userId} joined room ${room}`, 'WebSocket')
+
+			// 更新用户在线状态
+			await this.messagesService.setUserOnline(userId)
+			await this.sendFriendOnline(userId)
 
 			// 发送离线期间的好友请求
 			const pendingRequests = await this.prisma.friendRequest.findMany({
 				where: {
-					toId: user.sub,
+					toId: userId,
 					status: 'PENDING',
 				},
 				include: {
@@ -88,7 +149,7 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 
 			// 发送每个待处理的请求
 			for (const request of pendingRequests) {
-				await this.sendFriendRequest(user.sub, {
+				await this.sendFriendRequest(userId, {
 					request,
 					sender: {
 						id: request.fromId,
@@ -97,16 +158,38 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 					},
 				})
 			}
-		} else {
-			this.logger.warn(`No user data found for client ${client.id}`, 'WebSocket')
+		} catch (error) {
+			this.logger.error(`Authentication error: ${error.message}`, error.stack, 'WebSocket')
+			client.disconnect()
 		}
 	}
 
 	async handleDisconnect(client: Socket) {
-		const user = client.data.user
+		const user = client.data?.user
 		this.logger.debug(`Client disconnected: ${client.id}, User: ${JSON.stringify(user)}`, 'WebSocket')
 
 		if (user) {
+			// 从所有聊天室中移除
+			for (const [roomName, members] of this.chatRooms.entries()) {
+				if (members.has(client.id)) {
+					members.delete(client.id)
+					this.logger.debug(`Removed user ${user.sub} from chat room ${roomName}`, 'WebSocket')
+
+					// 获取聊天ID
+					const chatId = parseInt(roomName.replace('chat_', ''))
+
+					// 通知聊天室中的其他成员有用户离开
+					this.server.to(roomName).emit('userLeft', {
+						chatId,
+						user: {
+							id: user.sub,
+							username: user.username,
+						},
+						timestamp: new Date(),
+					})
+				}
+			}
+
 			client.leave(`user_${user.sub}`)
 			// 更新用户离线状态
 			await this.messagesService.setUserOffline(user.sub)
@@ -116,178 +199,425 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 	}
 
 	@SubscribeMessage('join')
-	handleJoin(client: Socket, chatId: number) {
-		const user = client.data.user
-		this.logger.debug(`User ${user.sub} joining chat ${chatId}`, 'WebSocket')
-		client.join(`chat_${chatId}`)
-		return { event: 'joined', data: { userId: user.sub, chatId } }
-	}
-
-	@SubscribeMessage('leave')
-	handleLeave(client: Socket, chatId: number) {
-		const user = client.data.user
-		this.logger.debug(`User ${user.sub} leaving chat ${chatId}`, 'WebSocket')
-		client.leave(`chat_${chatId}`)
-		return { event: 'left', data: { userId: user.sub, chatId } }
-	}
-
-	@SubscribeMessage('message')
-	async handleMessage(
-		@MessageBody()
-		data: {
-			chatId: number
-			receiverId: number
-			type: MessageType
-			content: string
-			tempId: number
-			metadata?: any
-		},
-		@ConnectedSocket() client: Socket
-	) {
-		const user = client.data.user
-		if (!user) {
-			throw new Error('Unauthorized')
-		}
-
-		this.logger.debug(`Message from user ${user.sub}: ${JSON.stringify(data)}`, 'MessagesGateway')
-
+	async handleJoin(@MessageBody() data: { chatId: number }, @ConnectedSocket() client: Socket) {
 		try {
-			// 创建消息
-			const message = await this.messagesService.create({
+			this.logger.debug(`Client ${client.id} attempting to join chat ${data.chatId}`, 'WebSocket')
+
+			// 检查用户认证
+			const user = client.data?.user
+
+			if (!user || !user.sub) {
+				this.logger.warn(`No authenticated user found for client ${client.id}`, 'WebSocket')
+				client.emit('error', { message: 'Authentication required' })
+				return { success: false, error: 'Authentication required' }
+			}
+
+			// 加入聊天室
+			const roomName = `chat_${data.chatId}`
+			client.join(roomName)
+
+			// 更新我们自己的聊天室成员跟踪
+			if (!this.chatRooms.has(roomName)) {
+				this.chatRooms.set(roomName, new Set())
+			}
+			this.chatRooms.get(roomName).add(client.id)
+
+			this.logger.debug(`User ${user.sub} joined chat room ${roomName}`, 'WebSocket')
+			this.logger.debug(`Chat room ${roomName} now has ${this.chatRooms.get(roomName).size} members`, 'WebSocket')
+
+			// 通知聊天室中的其他成员有新用户加入
+			client.to(roomName).emit('userJoined', {
 				chatId: data.chatId,
-				senderId: user.sub,
-				receiverId: data.receiverId,
-				type: data.type,
-				content: data.content,
-				metadata: data.metadata,
-			})
-
-			// 获取聊天室信息
-			const chatRoom = this.server.sockets.adapter.rooms.get(`chat_${data.chatId}`)
-			const receiverSocket = Array.from(this.server.sockets.sockets.values()).find(
-				socket => socket.data.user?.sub === data.receiverId
-			)
-
-			// 1. 如果接收者在聊天室，发送给聊天室其他成员
-			if (chatRoom?.has(receiverSocket?.id)) {
-				client.to(`chat_${data.chatId}`).emit('message', {
-					type: 'message',
-					data: message,
-					timestamp: new Date(),
-				})
-			}
-			// 2. 如果接收者不在聊天室，发送到接收者的个人房间
-			else {
-				this.server.to(`user_${data.receiverId}`).emit('message', {
-					type: 'message',
-					data: message,
-					timestamp: new Date(),
-				})
-			}
-
-			// 3. 发送成功状态给发送者
-			client.emit('messageSent', {
-				type: 'messageSent',
-				data: {
-					tempId: data.tempId,
-					message: {
-						id: message.id,
-						chatId: message.chatId,
-						senderId: message.senderId,
-						receiverId: message.receiverId,
-						type: message.type,
-						content: message.content,
-						status: 'sent',
-						createdAt: message.createdAt,
-						sender: message.sender,
-						receiver: message.receiver,
-					},
+				user: {
+					id: user.sub,
+					username: user.username,
 				},
 				timestamp: new Date(),
 			})
 
-			// 4. 检查接收者是否在线并处理送达状态
-			const isReceiverOnline = await this.messagesService.isUserOnline(data.receiverId)
-			if (isReceiverOnline) {
-				this.logger.debug(`Receiver ${data.receiverId} is online, sending delivered status`, 'MessagesGateway')
-				client.emit('messageDelivered', {
-					type: 'messageDelivered',
-					data: {
-						tempId: data.tempId,
-						messageId: message.id,
-						status: 'delivered',
-					},
-					timestamp: new Date(),
-				})
-			} else {
-				this.logger.debug(`Receiver ${data.receiverId} is offline`, 'MessagesGateway')
+			// 更新消息状态为已读
+			await this.messagesService.markMessagesAsRead(data.chatId, user.sub)
+
+			return {
+				success: true,
+				message: `Joined chat ${data.chatId}`,
+			}
+		} catch (error) {
+			this.logger.error(`Error joining chat: ${error.message}`, error.stack, 'WebSocket')
+			return { success: false, error: error.message }
+		}
+	}
+
+	@SubscribeMessage('leave')
+	handleLeave(@MessageBody() data: { chatId: number }, @ConnectedSocket() client: Socket) {
+		try {
+			const user = client.data?.user
+
+			if (!user || !user.sub) {
+				this.logger.warn(`No authenticated user found for client ${client.id}`, 'WebSocket')
+				client.emit('error', { message: 'Authentication required' })
+				return { success: false, error: 'Authentication required' }
 			}
 
-			return message
+			const roomName = `chat_${data.chatId}`
+			this.logger.debug(`User ${user.sub} leaving chat ${data.chatId}`, 'WebSocket')
+
+			// 离开聊天室
+			client.leave(roomName)
+
+			// 更新我们自己的聊天室成员跟踪
+			if (this.chatRooms.has(roomName)) {
+				this.chatRooms.get(roomName).delete(client.id)
+				this.logger.debug(`Chat room ${roomName} now has ${this.chatRooms.get(roomName).size} members`, 'WebSocket')
+			}
+
+			// 通知聊天室中的其他成员有用户离开
+			client.to(roomName).emit('userLeft', {
+				chatId: data.chatId,
+				user: {
+					id: user.sub,
+					username: user.username,
+				},
+				timestamp: new Date(),
+			})
+
+			return { success: true, message: `Left chat ${data.chatId}` }
+		} catch (error) {
+			this.logger.error(`Error leaving chat: ${error.message}`, error.stack, 'WebSocket')
+			return { success: false, error: error.message }
+		}
+	}
+
+	@SubscribeMessage('message')
+	async handleMessage(@MessageBody() data: any, @ConnectedSocket() client: Socket) {
+		try {
+			// 检查用户认证
+			const user = client.data?.user
+
+			if (!user || !user.sub) {
+				this.logger.warn(`No authenticated user found for client ${client.id}`, 'WebSocket')
+				client.emit('error', { message: 'Authentication required' })
+				return { success: false, error: 'Authentication required' }
+			}
+
+			this.logger.debug(`Received message: ${JSON.stringify(data)}`, 'MessagesGateway')
+
+			const { type, message } = data
+
+			// 安全地检查聊天室是否存在
+			const roomName = `chat_${message.chatId}`
+			let roomClients = []
+			let roomExists = false
+
+			try {
+				if (this.server && this.server.sockets && this.server.sockets.adapter) {
+					const room = this.server.sockets.adapter.rooms?.get(roomName)
+					if (room) {
+						roomExists = true
+						roomClients = Array.from(room)
+						this.logger.debug(`Room ${roomName} has ${room.size} clients: ${roomClients.join(', ')}`, 'MessagesGateway')
+					} else {
+						this.logger.debug(`Room ${roomName} does not exist or is empty`, 'MessagesGateway')
+					}
+				} else {
+					this.logger.warn('Socket server or adapter not fully initialized', 'MessagesGateway')
+				}
+			} catch (err) {
+				this.logger.error(`Error checking room: ${err.message}`, err.stack, 'MessagesGateway')
+			}
+
+			// 验证用户是否有权限发送消息到这个聊天
+			const canSendMessage = await this.messagesService.canUserSendToChat(user.sub, message.chatId)
+			if (!canSendMessage) {
+				this.logger.warn(`User ${user.sub} not authorized to send message to chat ${message.chatId}`, 'WebSocket')
+				client.emit('error', { message: 'Not authorized to send message to this chat' })
+				return { success: false, error: 'Not authorized to send message to this chat' }
+			}
+
+			this.logger.debug(`User ${user.sub} sending message to chat ${message.chatId}`, 'MessagesGateway')
+
+			// 创建消息
+			const result = await this.messagesService.create({
+				chatId: message.chatId,
+				senderId: user.sub,
+				receiverId: message.receiverId,
+				type: message.type,
+				content: message.content,
+				metadata: message.metadata,
+			})
+
+			// 构建响应
+			const response = {
+				type: 'message',
+				data: {
+					...result,
+					tempId: message.tempId,
+				},
+				timestamp: new Date(),
+			}
+
+			// 发送给发送者确认
+			this.logger.debug(`Sending messageConfirm to sender ${user.sub}`, 'MessagesGateway')
+			client.emit('messageConfirm', {
+				type: 'messageConfirm',
+				data: {
+					tempId: message.tempId,
+					message: result,
+				},
+				timestamp: new Date(),
+			})
+
+			// 广播给聊天室中的其他用户
+			this.logger.debug(`Broadcasting message to room ${roomName}`, 'MessagesGateway')
+			try {
+				client.to(roomName).emit('message', response)
+			} catch (err) {
+				this.logger.error(`Error broadcasting to room: ${err.message}`, err.stack, 'MessagesGateway')
+			}
+
+			// 检查是否有接收者在线，如果不在聊天室中，单独发送
+			const receiverId = message.receiverId
+			if (receiverId) {
+				this.logger.debug(`Checking if receiver ${receiverId} is in room ${roomName}`, 'MessagesGateway')
+
+				let isReceiverInRoom = false
+
+				try {
+					if (roomExists && this.server && this.server.sockets) {
+						isReceiverInRoom = roomClients.some(socketId => {
+							try {
+								const socket = this.server.sockets.sockets.get(socketId)
+								return socket?.data?.user?.sub === receiverId
+							} catch (err) {
+								this.logger.error(`Error checking socket: ${err.message}`, err.stack, 'MessagesGateway')
+								return false
+							}
+						})
+					}
+				} catch (err) {
+					this.logger.error(`Error checking if receiver in room: ${err.message}`, err.stack, 'MessagesGateway')
+				}
+
+				if (!isReceiverInRoom) {
+					this.logger.debug(`Receiver ${receiverId} not in room, sending directly`, 'MessagesGateway')
+					try {
+						this.server.to(`user_${receiverId}`).emit('message', response)
+					} catch (err) {
+						this.logger.error(`Error sending to user: ${err.message}`, err.stack, 'MessagesGateway')
+					}
+				}
+			}
+
+			this.logger.debug(`Message sent to chat ${message.chatId}`, 'MessagesGateway')
+
+			return { success: true, message: result }
 		} catch (error) {
 			this.logger.error(`Error sending message: ${error.message}`, error.stack, 'MessagesGateway')
 
 			// 发送失败状态给发送者
-			client.emit('messageError', {
-				type: 'messageError',
-				data: {
-					tempId: data.tempId,
-					error: error.message,
-					originalMessage: data,
-				},
-				timestamp: new Date(),
-			})
-			throw error
+			try {
+				client.emit('messageError', {
+					type: 'messageError',
+					data: {
+						tempId: data.message?.tempId,
+						error: error.message,
+						originalMessage: data,
+					},
+					timestamp: new Date(),
+				})
+			} catch (err) {
+				this.logger.error(`Error sending error message: ${err.message}`, err.stack, 'MessagesGateway')
+			}
+
+			return { success: false, error: error.message }
 		}
 	}
 
 	@SubscribeMessage('typing')
-	async handleTyping(@MessageBody() data: { chatId: number; userId: number }, @ConnectedSocket() client: Socket) {
-		this.logger.debug(`User ${data.userId} is typing in chat ${data.chatId}`, 'MessagesGateway')
+	async handleTyping(@MessageBody() data: { chatId: number; isTyping: boolean }, @ConnectedSocket() client: Socket) {
+		try {
+			const user = client.data?.user
 
-		// 检查房间信息
-		const room = this.server.sockets.adapter.rooms.get(`chat_${data.chatId}`)
-		const sockets = Array.from(room || [])
+			if (!user || !user.sub) {
+				this.logger.warn(`No authenticated user found for client ${client.id}`, 'WebSocket')
+				client.emit('error', { message: 'Authentication required' })
+				return { success: false, error: 'Authentication required' }
+			}
 
-		this.logger.debug(
-			`Room chat_${data.chatId} has ${sockets.length} clients: ${sockets.join(', ')}`,
-			'MessagesGateway'
-		)
+			const chatId = data.chatId
+			const isTyping = data.isTyping
+			const roomName = `chat_${chatId}`
 
-		// 广播给房间内除了发送者之外的其他用户
-		client.to(`chat_${data.chatId}`).emit('userTyping', {
-			type: 'userTyping',
-			data: {
-				userId: data.userId,
-				chatId: data.chatId,
-			},
-			timestamp: new Date(),
-		})
+			this.logger.debug(`User ${user.sub} ${isTyping ? 'is typing' : 'stopped typing'} in chat ${chatId}`, 'WebSocket')
 
-		this.logger.debug(
-			`Sent userTyping event to other users in chat ${data.chatId} for user ${data.userId}`,
-			'MessagesGateway'
-		)
+			// 确保用户在聊天室中
+			if (!client.rooms.has(roomName)) {
+				this.logger.debug(`User ${user.sub} is not in room ${roomName}, joining now`, 'WebSocket')
+				client.join(roomName)
+
+				// 更新我们自己的聊天室成员跟踪
+				if (!this.chatRooms.has(roomName)) {
+					this.chatRooms.set(roomName, new Set())
+				}
+				this.chatRooms.get(roomName).add(client.id)
+			}
+
+			// 获取聊天室成员数量
+			const roomSize = this.chatRooms.has(roomName) ? this.chatRooms.get(roomName).size : 0
+			this.logger.debug(`Chat room ${roomName} has ${roomSize} members`, 'WebSocket')
+
+			// 获取用户信息
+			const userInfo = await this.prisma.user.findUnique({
+				where: { id: user.sub },
+				select: { id: true, username: true, avatar: true },
+			})
+
+			// 构建事件数据
+			const eventData = {
+				chatId,
+				user: userInfo,
+				isTyping,
+				timestamp: new Date(),
+			}
+
+			// 向聊天室中的其他用户广播
+			this.logger.debug(`Broadcasting typing event to room ${roomName} (${roomSize} members)`, 'WebSocket')
+
+			// 使用更安全的方式广播消息
+			try {
+				// 尝试使用 client.to 方法广播
+				client.to(roomName).emit('userTyping', eventData)
+				this.logger.debug(`Broadcast using client.to complete`, 'WebSocket')
+			} catch (err) {
+				this.logger.error(`Error broadcasting with client.to: ${err.message}`, err.stack, 'WebSocket')
+			}
+
+			// 尝试使用 server.to 方法广播
+			try {
+				this.server.to(roomName).emit('userTyping', eventData)
+				this.logger.debug(`Broadcast using server.to complete`, 'WebSocket')
+			} catch (err) {
+				this.logger.error(`Error broadcasting with server.to: ${err.message}`, err.stack, 'WebSocket')
+			}
+
+			// 如果上述方法都失败，尝试直接向每个成员发送消息
+			if (this.chatRooms.has(roomName)) {
+				const members = this.chatRooms.get(roomName)
+				this.logger.debug(`Room members: ${Array.from(members).join(', ')}`, 'WebSocket')
+
+				// 向每个成员单独发送消息，除了发送者
+				for (const memberId of members) {
+					if (memberId !== client.id) {
+						this.logger.debug(`Attempting to send typing event to member ${memberId}`, 'WebSocket')
+						try {
+							// 安全地获取 socket
+							if (this.server && this.server.sockets) {
+								const sockets = this.server.sockets.sockets
+								if (sockets && typeof sockets.get === 'function') {
+									const socket = sockets.get(memberId)
+									if (socket) {
+										socket.emit('userTyping', eventData)
+										this.logger.debug(`Successfully sent typing event to member ${memberId}`, 'WebSocket')
+									} else {
+										this.logger.warn(`Socket for member ${memberId} not found`, 'WebSocket')
+										// 如果找不到 socket，可能是已断开连接，从聊天室中移除
+										members.delete(memberId)
+									}
+								} else {
+									this.logger.warn(`Server.sockets.sockets.get is not a function`, 'WebSocket')
+								}
+							} else {
+								this.logger.warn(`Server or server.sockets is undefined`, 'WebSocket')
+							}
+						} catch (err) {
+							this.logger.error(`Error sending to member ${memberId}: ${err.message}`, err.stack, 'WebSocket')
+						}
+					}
+				}
+			}
+
+			this.logger.debug(`Typing event broadcast complete`, 'WebSocket')
+
+			return { success: true }
+		} catch (error) {
+			this.logger.error(`Error in typing event: ${error.message}`, error.stack, 'WebSocket')
+			return { success: false, error: error.message }
+		}
 	}
 
 	@SubscribeMessage('stopTyping')
-	async handleStopTyping(@MessageBody() data: { chatId: number; userId: number }, @ConnectedSocket() client: Socket) {
-		this.logger.debug(`User ${data.userId} stopped typing in chat ${data.chatId}`, 'MessagesGateway')
+	async handleStopTyping(@MessageBody() data: { chatId: number }, @ConnectedSocket() client: Socket) {
+		try {
+			const user = client.data?.user
 
-		// 广播给房间内除了发送者之外的其他用户
-		client.to(`chat_${data.chatId}`).emit('userStopTyping', {
-			type: 'userStopTyping',
-			data: {
-				userId: data.userId,
-				chatId: data.chatId,
-			},
-			timestamp: new Date(),
-		})
+			if (!user || !user.sub) {
+				this.logger.warn(`No authenticated user found for client ${client.id}`, 'WebSocket')
+				client.emit('error', { message: 'Authentication required' })
+				return { success: false, error: 'Authentication required' }
+			}
 
-		this.logger.debug(
-			`Sent userStopTyping event to other users in chat ${data.chatId} for user ${data.userId}`,
-			'MessagesGateway'
-		)
+			const chatId = data.chatId
+			const roomName = `chat_${chatId}`
+
+			this.logger.debug(`User ${user.sub} stopped typing in chat ${chatId}`, 'WebSocket')
+
+			// 确保用户在聊天室中
+			if (!client.rooms.has(roomName)) {
+				this.logger.debug(`User ${user.sub} is not in room ${roomName}, joining now`, 'WebSocket')
+				client.join(roomName)
+
+				// 更新我们自己的聊天室成员跟踪
+				if (!this.chatRooms.has(roomName)) {
+					this.chatRooms.set(roomName, new Set())
+				}
+				this.chatRooms.get(roomName).add(client.id)
+			}
+
+			// 获取聊天室成员数量
+			const roomSize = this.chatRooms.has(roomName) ? this.chatRooms.get(roomName).size : 0
+			this.logger.debug(`Chat room ${roomName} has ${roomSize} members`, 'WebSocket')
+
+			// 获取用户信息
+			const userInfo = await this.prisma.user.findUnique({
+				where: { id: user.sub },
+				select: { id: true, username: true, avatar: true },
+			})
+
+			// 构建事件数据
+			const eventData = {
+				chatId,
+				user: userInfo,
+				isTyping: false,
+				timestamp: new Date(),
+			}
+
+			// 向聊天室中的其他用户广播
+			this.logger.debug(`Broadcasting stop typing event to room ${roomName} (${roomSize} members)`, 'WebSocket')
+
+			// 使用更安全的方式广播消息
+			try {
+				// 尝试使用 client.to 方法广播
+				client.to(roomName).emit('userTyping', eventData)
+				this.logger.debug(`Broadcast using client.to complete`, 'WebSocket')
+			} catch (err) {
+				this.logger.error(`Error broadcasting with client.to: ${err.message}`, err.stack, 'WebSocket')
+			}
+
+			// 尝试使用 server.to 方法广播
+			try {
+				this.server.to(roomName).emit('userTyping', eventData)
+				this.logger.debug(`Broadcast using server.to complete`, 'WebSocket')
+			} catch (err) {
+				this.logger.error(`Error broadcasting with server.to: ${err.message}`, err.stack, 'WebSocket')
+			}
+
+			this.logger.debug(`Stop typing event broadcast complete`, 'WebSocket')
+
+			return { success: true }
+		} catch (error) {
+			this.logger.error(`Error in stop typing event: ${error.message}`, error.stack, 'WebSocket')
+			return { success: false, error: error.message }
+		}
 	}
 
 	// 用于从其他服务发送消息

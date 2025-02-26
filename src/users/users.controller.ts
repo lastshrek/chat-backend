@@ -243,7 +243,6 @@ export class UsersController {
 		}
 	}
 
-	@Public()
 	@Get('json-data')
 	@ApiOperation({ summary: '获取组织架构用户数据' })
 	@ApiResponse({

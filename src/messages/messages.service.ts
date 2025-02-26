@@ -174,9 +174,9 @@ export class MessagesService {
 		// 使用事件服务发送通知
 		for (const [senderId, messageIds] of senderGroups) {
 			this.eventsService.emitMessagesBatchStatus({
+				senderId,
 				messageIds,
 				status,
-				senderId,
 			})
 		}
 
@@ -472,6 +472,382 @@ export class MessagesService {
 			messages: messages.reverse(), // 返回正序的消息
 			hasMore: messages.length === limit,
 			total,
+		}
+	}
+
+	async getOrCreateDirectChat(currentUserId: number, targetUserId: number) {
+		this.logger.debug(
+			`Getting or creating direct chat between users ${currentUserId} and ${targetUserId}`,
+			'MessagesService'
+		)
+
+		// 检查用户是否存在
+		const targetUser = await this.prisma.user.findUnique({
+			where: { id: targetUserId },
+			select: { id: true, username: true, avatar: true },
+		})
+
+		if (!targetUser) {
+			throw new NotFoundException(`User with ID ${targetUserId} not found`)
+		}
+
+		// 查找现有的直接聊天
+		const existingChat = await this.prisma.chat.findFirst({
+			where: {
+				type: 'DIRECT',
+				AND: [
+					{
+						participants: {
+							some: { userId: currentUserId },
+						},
+					},
+					{
+						participants: {
+							some: { userId: targetUserId },
+						},
+					},
+				],
+			},
+			include: {
+				participants: {
+					include: {
+						user: {
+							select: {
+								id: true,
+								username: true,
+								avatar: true,
+							},
+						},
+					},
+				},
+			},
+		})
+
+		// 如果找到现有聊天，直接返回
+		if (existingChat) {
+			this.logger.debug(`Found existing direct chat: ${existingChat.id}`, 'MessagesService')
+
+			return {
+				...existingChat,
+				participants: existingChat.participants.map(p => p.user),
+				isNew: false,
+			}
+		}
+
+		// 如果不存在，创建新的聊天
+		this.logger.debug(`Creating new direct chat between users ${currentUserId} and ${targetUserId}`, 'MessagesService')
+
+		// 获取当前用户信息
+		const currentUser = await this.prisma.user.findUnique({
+			where: { id: currentUserId },
+			select: { id: true, username: true, avatar: true },
+		})
+
+		// 创建新聊天
+		const newChat = await this.prisma.chat.create({
+			data: {
+				type: 'DIRECT',
+				participants: {
+					create: [{ userId: currentUserId }, { userId: targetUserId }],
+				},
+			},
+			include: {
+				participants: {
+					include: {
+						user: {
+							select: {
+								id: true,
+								username: true,
+								avatar: true,
+							},
+						},
+					},
+				},
+			},
+		})
+
+		this.logger.debug(`Created new direct chat: ${newChat.id}`, 'MessagesService')
+
+		return {
+			...newChat,
+			participants: [currentUser, targetUser],
+			isNew: true,
+		}
+	}
+
+	async getMessagesAroundId(messageId: number, limit = 20) {
+		// 首先获取目标消息，确认它存在并获取其聊天ID和创建时间
+		const targetMessage = await this.prisma.message.findUnique({
+			where: { id: messageId },
+			select: { chatId: true, createdAt: true },
+		})
+
+		if (!targetMessage) {
+			throw new NotFoundException(`Message with ID ${messageId} not found`)
+		}
+
+		// 计算每边应该获取的消息数量
+		const halfLimit = Math.floor(limit / 2)
+
+		// 获取目标消息之前的消息
+		const beforeMessages = await this.prisma.message.findMany({
+			where: {
+				chatId: targetMessage.chatId,
+				createdAt: { lt: targetMessage.createdAt },
+			},
+			orderBy: { createdAt: 'desc' },
+			take: halfLimit,
+			include: {
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				receiver: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+		})
+
+		// 获取目标消息
+		const currentMessage = await this.prisma.message.findUnique({
+			where: { id: messageId },
+			include: {
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				receiver: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+		})
+
+		// 获取目标消息之后的消息
+		const afterMessages = await this.prisma.message.findMany({
+			where: {
+				chatId: targetMessage.chatId,
+				createdAt: { gt: targetMessage.createdAt },
+			},
+			orderBy: { createdAt: 'asc' },
+			take: halfLimit,
+			include: {
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				receiver: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+		})
+
+		// 检查是否有更多消息
+		const hasMoreBefore = beforeMessages.length === halfLimit
+		const hasMoreAfter = afterMessages.length === halfLimit
+
+		// 获取聊天中的总消息数
+		const total = await this.prisma.message.count({
+			where: { chatId: targetMessage.chatId },
+		})
+
+		// 组合所有消息并按时间排序
+		const allMessages = [...beforeMessages.reverse(), currentMessage, ...afterMessages].sort(
+			(a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+		)
+
+		return {
+			messages: allMessages,
+			hasMoreBefore,
+			hasMoreAfter,
+			total,
+		}
+	}
+
+	async getMessagesBefore(messageId: number, chatId: number, limit = 20) {
+		// 首先获取目标消息，确认它存在并且属于指定的聊天室
+		const targetMessage = await this.prisma.message.findFirst({
+			where: {
+				id: messageId,
+				chatId: chatId,
+			},
+			include: {
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				receiver: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+		})
+
+		if (!targetMessage) {
+			throw new NotFoundException(`Message with ID ${messageId} not found in chat ${chatId}`)
+		}
+
+		// 获取目标消息之前的消息（不包括目标消息）
+		const beforeMessages = await this.prisma.message.findMany({
+			where: {
+				chatId: chatId,
+				createdAt: { lt: targetMessage.createdAt },
+			},
+			orderBy: { createdAt: 'desc' },
+			take: limit - 1, // 减1是为了给目标消息留位置
+			include: {
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				receiver: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+			},
+		})
+
+		// 检查是否有更多消息
+		const hasMore = beforeMessages.length === limit - 1
+
+		// 获取聊天中的总消息数
+		const total = await this.prisma.message.count({
+			where: { chatId: chatId },
+		})
+
+		// 按时间正序排列消息，并包含目标消息
+		const messages = [...beforeMessages.reverse(), targetMessage]
+
+		return {
+			messages,
+			hasMore,
+			total,
+			chatId: chatId,
+		}
+	}
+
+	/**
+	 * 将聊天中的消息标记为已读
+	 * @param chatId 聊天ID
+	 * @param userId 用户ID
+	 */
+	async markMessagesAsRead(chatId: number, userId: number) {
+		this.logger.debug(`Marking messages as read in chat ${chatId} for user ${userId}`, 'MessagesService')
+
+		try {
+			// 查找该聊天中发送给该用户且未读的消息
+			const unreadMessages = await this.prisma.message.findMany({
+				where: {
+					chatId: chatId,
+					receiverId: userId,
+					status: { not: 'READ' },
+				},
+				select: {
+					id: true,
+					senderId: true,
+				},
+			})
+
+			if (unreadMessages.length === 0) {
+				this.logger.debug(`No unread messages found in chat ${chatId} for user ${userId}`, 'MessagesService')
+				return { success: true, count: 0 }
+			}
+
+			// 获取消息ID列表
+			const messageIds = unreadMessages.map(msg => msg.id)
+
+			// 批量更新消息状态
+			await this.prisma.message.updateMany({
+				where: {
+					id: { in: messageIds },
+				},
+				data: {
+					status: 'READ',
+				},
+			})
+
+			this.logger.debug(`Marked ${messageIds.length} messages as read in chat ${chatId}`, 'MessagesService')
+
+			// 按发送者分组消息ID，以便发送通知
+			const senderMessageMap = new Map<number, number[]>()
+			unreadMessages.forEach(msg => {
+				if (!senderMessageMap.has(msg.senderId)) {
+					senderMessageMap.set(msg.senderId, [])
+				}
+				senderMessageMap.get(msg.senderId).push(msg.id)
+			})
+
+			// 为每个发送者发送消息状态更新事件
+			for (const [senderId, msgIds] of senderMessageMap.entries()) {
+				this.eventsService.emitMessagesBatchStatus({
+					senderId,
+					messageIds: msgIds,
+					status: 'READ',
+				})
+			}
+
+			return {
+				success: true,
+				count: messageIds.length,
+			}
+		} catch (error) {
+			this.logger.error(`Error marking messages as read: ${error.message}`, error.stack, 'MessagesService')
+			throw error
+		}
+	}
+
+	/**
+	 * 检查用户是否有权限发送消息到指定聊天
+	 * @param userId 用户ID
+	 * @param chatId 聊天ID
+	 * @returns 是否有权限
+	 */
+	async canUserSendToChat(userId: number, chatId: number): Promise<boolean> {
+		try {
+			// 检查用户是否是聊天的参与者
+			const participant = await this.prisma.chatParticipant.findFirst({
+				where: {
+					chatId: chatId,
+					userId: userId,
+				},
+			})
+
+			return !!participant
+		} catch (error) {
+			this.logger.error(`Error checking user permission: ${error.message}`, error.stack, 'MessagesService')
+			return false
 		}
 	}
 }

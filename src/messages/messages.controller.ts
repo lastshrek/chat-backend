@@ -194,4 +194,147 @@ export class MessagesController {
 	async getChatMessages(@Param('chatId') chatId: string, @Query('page') page = '1', @Query('limit') limit = '20') {
 		return this.messagesService.getChatMessages(+chatId, +page, +limit)
 	}
+
+	@Get('direct-chat/:userId')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取或创建与指定用户的单聊' })
+	@ApiParam({ name: 'userId', description: '目标用户ID' })
+	@ApiResponse({
+		status: 200,
+		description: '成功获取或创建单聊',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'object',
+					properties: {
+						id: { type: 'number' },
+						name: { type: 'string' },
+						type: { type: 'string', enum: ['DIRECT'] },
+						participants: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									id: { type: 'number' },
+									username: { type: 'string' },
+									avatar: { type: 'string' },
+								},
+							},
+						},
+						createdAt: { type: 'string', format: 'date-time' },
+						updatedAt: { type: 'string', format: 'date-time' },
+						isNew: { type: 'boolean', description: '是否新创建的聊天' },
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getOrCreateDirectChat(@Request() req, @Param('userId') targetUserId: string) {
+		return this.messagesService.getOrCreateDirectChat(req.user.sub, +targetUserId)
+	}
+
+	@Get('around/:messageId')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取指定消息前后的消息' })
+	@ApiParam({ name: 'messageId', description: '消息ID' })
+	@ApiQuery({ name: 'limit', required: false, description: '返回消息数量', type: Number })
+	@ApiResponse({
+		status: 200,
+		description: '成功获取消息',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'object',
+					properties: {
+						messages: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									id: { type: 'number' },
+									content: { type: 'string' },
+									type: { type: 'string' },
+									status: { type: 'string' },
+									createdAt: { type: 'string', format: 'date-time' },
+									sender: {
+										type: 'object',
+										properties: {
+											id: { type: 'number' },
+											username: { type: 'string' },
+											avatar: { type: 'string' },
+										},
+									},
+								},
+							},
+						},
+						hasMoreBefore: { type: 'boolean' },
+						hasMoreAfter: { type: 'boolean' },
+						total: { type: 'number' },
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getMessagesAroundId(@Param('messageId') messageId: string, @Query('limit') limit = '20') {
+		return this.messagesService.getMessagesAroundId(+messageId, +limit)
+	}
+
+	@Get('before/:messageId')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取指定消息之前的消息' })
+	@ApiParam({ name: 'messageId', description: '消息ID' })
+	@ApiQuery({ name: 'chatId', required: true, description: '聊天室ID', type: Number })
+	@ApiQuery({ name: 'limit', required: false, description: '返回消息数量', type: Number })
+	@ApiResponse({
+		status: 200,
+		description: '成功获取消息',
+		schema: {
+			properties: {
+				code: { type: 'number', example: 200 },
+				data: {
+					type: 'object',
+					properties: {
+						messages: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									id: { type: 'number' },
+									content: { type: 'string' },
+									type: { type: 'string' },
+									status: { type: 'string' },
+									createdAt: { type: 'string', format: 'date-time' },
+									sender: {
+										type: 'object',
+										properties: {
+											id: { type: 'number' },
+											username: { type: 'string' },
+											avatar: { type: 'string' },
+										},
+									},
+								},
+							},
+						},
+						hasMore: { type: 'boolean' },
+						total: { type: 'number' },
+					},
+				},
+				message: { type: 'string', example: 'success' },
+			},
+		},
+	})
+	async getMessagesBefore(
+		@Param('messageId') messageId: string,
+		@Query('chatId') chatId: string,
+		@Query('limit') limit = '20'
+	) {
+		return this.messagesService.getMessagesBefore(+messageId, +chatId, +limit)
+	}
 }
