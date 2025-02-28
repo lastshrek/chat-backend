@@ -157,14 +157,16 @@ export class OrganizationsService {
 				username: true, // 作为返回的 name
 				avatar: true,
 				dutyName: true,
+				id: true,
 			},
 		})
 
 		return users.map(user => ({
-			id: user.employeeId,
+			id: user.id,
 			name: user.username,
 			avatar: user.avatar,
 			dutyName: user.dutyName,
+			employeeId: user.employeeId,
 		}))
 	}
 }

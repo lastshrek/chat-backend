@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 
+
 # Logs
 logs
 *.log
@@ -21,4 +22,7 @@ yarn-error.log*
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# 忽略 user.json 文件
+user.json 

@@ -195,7 +195,7 @@ export class MessagesController {
 		return this.messagesService.getChatMessages(+chatId, +page, +limit)
 	}
 
-	@Get('direct-chat/:userId')
+	@Get('direct/:userId')
 	@UseGuards(JwtAuthGuard)
 	@ApiBearerAuth()
 	@ApiOperation({ summary: '获取或创建与指定用户的单聊' })

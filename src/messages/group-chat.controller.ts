@@ -5,7 +5,7 @@ import { GroupChatService } from './group-chat.service'
 import { CreateGroupChatDto, UpdateGroupChatDto, AddGroupMembersDto, UpdateMemberRoleDto } from './dto/group-chat.dto'
 import { MessagesGateway } from './messages.gateway'
 
-@ApiTags('群聊')
+@ApiTags('groupchat')
 @Controller('group-chats')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
