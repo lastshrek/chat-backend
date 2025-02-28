@@ -1,0 +1,31 @@
+[
+	{
+		"id": "example_id_1",
+		"name": "示例用户1",
+		"avatar": "",
+		"deptId": "dept_1",
+		"dutyName": "工程师",
+		"state": 0,
+		"companyId": "root",
+		"orgsInfo": [
+			{
+				"id": "dept_1",
+				"name": "技术部",
+				"type": 1,
+				"order": 1,
+				"path": [
+					{
+						"id": "root",
+						"name": "示例公司",
+						"type": 2
+					},
+					{
+						"id": "dept_1",
+						"name": "技术部",
+						"type": 1
+					}
+				]
+			}
+		]
+	}
+]

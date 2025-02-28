@@ -614,31 +614,29 @@ export class UsersService {
 
 	async updateUserAvatars() {
 		try {
-			// 获取所有没有头像的用户
+			// 获取所有用户
 			const users = await this.prisma.user.findMany({
-				where: {
-					OR: [{ avatar: null }, { avatar: '' }],
-				},
 				select: {
 					id: true,
 					username: true,
 				},
 			})
 
-			this.logger.debug(`Found ${users.length} users without avatars`, 'UsersService')
+			this.logger.debug(`Found ${users.length} users to update avatars`, 'UsersService')
 
 			// 批量更新用户头像
-			for (const user of users) {
-				// 使用 DiceBear API 生成头像
+			const updatePromises = users.map(user => {
+				// 使用 DiceBear API 生成头像，使用用户名作为种子
 				const avatar = `https://api.dicebear.com/9.x/pixel-art-neutral/svg?seed=${user.username}`
 
-				await this.prisma.user.update({
+				return this.prisma.user.update({
 					where: { id: user.id },
 					data: { avatar },
 				})
+			})
 
-				this.logger.debug(`Updated avatar for user ${user.id} (${user.username})`, 'UsersService')
-			}
+			// 并行执行所有更新
+			await Promise.all(updatePromises)
 
 			return {
 				success: true,
@@ -649,67 +647,5 @@ export class UsersService {
 			this.logger.error(`Failed to update user avatars: ${error.message}`, error.stack, 'UsersService')
 			throw new Error(`Failed to update user avatars: ${error.message}`)
 		}
-	}
-
-	async getFriendChats(userId: number) {
-		const chats = await this.prisma.chat.findMany({
-			where: {
-				type: ChatType.PRIVATE,
-				participants: {
-					some: {
-						userId,
-					},
-				},
-			},
-			include: {
-				participants: {
-					include: {
-						user: {
-							select: {
-								id: true,
-								username: true,
-								avatar: true,
-							},
-						},
-					},
-				},
-				messages: {
-					take: 1,
-					orderBy: {
-						createdAt: 'desc',
-					},
-				},
-			},
-		})
-
-		return chats.map(chat => ({
-			id: chat.id,
-			otherUser: chat.participants.find(p => p.userId !== userId)?.user,
-			lastMessage: chat.messages[0] || null,
-		}))
-	}
-
-	async checkExistingChat(currentUserId: number, targetUserId: number) {
-		return this.prisma.chat.findFirst({
-			where: {
-				type: ChatType.PRIVATE,
-				AND: [
-					{
-						participants: {
-							some: {
-								userId: currentUserId,
-							},
-						},
-					},
-					{
-						participants: {
-							some: {
-								userId: targetUserId,
-							},
-						},
-					},
-				],
-			},
-		})
 	}
 }
