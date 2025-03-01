@@ -5,21 +5,19 @@ import * as sharp from 'sharp' // 需要先安装: npm install sharp
 
 @Injectable()
 export class MinioService {
-	private minioClient: Minio.Client
+	private readonly minioClient: Minio.Client
 	private readonly logger = new Logger(MinioService.name)
-	private readonly bucketName: string
+	private readonly bucketName = 'chat-files'
 
 	constructor(private configService: ConfigService) {
-		// 从环境变量获取配置
 		this.minioClient = new Minio.Client({
-			endPoint: configService.get('MINIO_ENDPOINT'),
-			port: parseInt(configService.get('MINIO_PORT')),
-			useSSL: configService.get('MINIO_USE_SSL') === 'true',
-			accessKey: configService.get('MINIO_ACCESS_KEY'),
-			secretKey: configService.get('MINIO_SECRET_KEY'),
+			endPoint: 'localhost',
+			port: 9000,
+			useSSL: false,
+			accessKey: 'minioadmin',
+			secretKey: 'minioadmin',
 		})
 
-		this.bucketName = configService.get('MINIO_BUCKET_NAME')
 		this.initBucket()
 	}
 
@@ -31,25 +29,23 @@ export class MinioService {
 				this.logger.log(`Bucket ${this.bucketName} created successfully`)
 			}
 		} catch (error) {
-			this.logger.error(`Error initializing bucket: ${error.message}`)
+			this.logger.error(`Error initializing bucket: ${error.message}`, error.stack)
 		}
 	}
 
 	async uploadFile(
 		file: Buffer,
-		type: 'voice' | 'image' | 'video',
+		type: 'voice' | 'image' | 'video' | 'file',
 		metadata: Record<string, string> = {}
 	): Promise<{ url: string; thumbnail?: string; width?: number; height?: number }> {
 		try {
-			const extension = this.getExtension(type)
-			const fileName = `${type}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`
-
 			if (type === 'image') {
-				// 处理图片和生成缩略图
 				const image = sharp(file)
-				const metadata = await image.metadata()
+				const imageMetadata = await image.metadata()
 
-				// 生成缩略图
+				const fileName = `images/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`
+				const thumbnailFileName = `thumbnails/images/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`
+
 				const thumbnailBuffer = await image
 					.resize(300, 300, {
 						fit: 'inside',
@@ -58,44 +54,44 @@ export class MinioService {
 					.jpeg({ quality: 80 })
 					.toBuffer()
 
-				// 上传原图
-				await this.minioClient.putObject(this.bucketName, fileName, file, file.length, {
-					'Content-Type': this.getMimeType(type),
-					...metadata,
-				})
+				await this.minioClient.putObject(this.bucketName, fileName, file, file.length, { 'Content-Type': 'image/jpeg' })
 
-				// 上传缩略图
-				const thumbnailFileName = `thumbnails/${fileName}`
 				await this.minioClient.putObject(this.bucketName, thumbnailFileName, thumbnailBuffer, thumbnailBuffer.length, {
 					'Content-Type': 'image/jpeg',
-					'X-Amz-Meta-Original-Image': fileName,
 				})
 
-				// 生成 URL
 				const url = await this.minioClient.presignedGetObject(this.bucketName, fileName, 24 * 60 * 60)
-
 				const thumbnailUrl = await this.minioClient.presignedGetObject(this.bucketName, thumbnailFileName, 24 * 60 * 60)
 
 				return {
 					url,
 					thumbnail: thumbnailUrl,
-					width: metadata.width,
-					height: metadata.height,
+					width: imageMetadata.width,
+					height: imageMetadata.height,
 				}
+			} else if (type === 'file') {
+				const originalName = metadata['original-name'] || 'unknown.bin'
+				const mimeType = metadata['content-type'] || 'application/octet-stream'
+				const fileName = `files/${Date.now()}-${Math.random().toString(36).substring(7)}-${originalName}`
+
+				await this.minioClient.putObject(this.bucketName, fileName, file, file.length, { 'Content-Type': mimeType })
+
+				const url = await this.minioClient.presignedGetObject(this.bucketName, fileName, 24 * 60 * 60)
+				return { url }
 			} else {
-				// 处理其他类型文件
+				const extension = this.getExtension(type)
+				const fileName = `${type}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`
+
 				await this.minioClient.putObject(this.bucketName, fileName, file, file.length, {
 					'Content-Type': this.getMimeType(type),
-					...metadata,
 				})
 
 				const url = await this.minioClient.presignedGetObject(this.bucketName, fileName, 24 * 60 * 60)
-
 				return { url }
 			}
 		} catch (error) {
-			this.logger.error(`File upload failed: ${error.message}`)
-			throw new Error('File upload failed')
+			this.logger.error(`File upload failed: ${error.message}`, error.stack)
+			throw new Error(`File upload failed: ${error.message}`)
 		}
 	}
 
@@ -107,6 +103,8 @@ export class MinioService {
 				return 'jpg'
 			case 'video':
 				return 'mp4'
+			case 'file':
+				return 'bin'
 			default:
 				return 'bin'
 		}
@@ -120,6 +118,8 @@ export class MinioService {
 				return 'image/jpeg'
 			case 'video':
 				return 'video/mp4'
+			case 'file':
+				return 'application/octet-stream'
 			default:
 				return 'application/octet-stream'
 		}

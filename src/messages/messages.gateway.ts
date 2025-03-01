@@ -17,6 +17,7 @@ import { WebSocketEvent } from './types/events'
 import { PrismaService } from '../prisma/prisma.service'
 import { MessageType } from '@prisma/client'
 import { JwtService } from '@nestjs/jwt'
+import { MessageStatus } from '@prisma/client'
 
 @WebSocketGateway({
 	namespace: '/messages', // 确保命名空间唯一
@@ -289,147 +290,67 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 	}
 
 	@SubscribeMessage('message')
-	async handleMessage(@MessageBody() data: any, @ConnectedSocket() client: Socket) {
+	async handleMessage(
+		@MessageBody() data: { type: string; message: CreateMessageDto },
+		@ConnectedSocket() client: Socket
+	) {
 		try {
-			// 检查用户认证
-			const user = client.data?.user
+			const userId = client.data.user.sub
+			const messageData = data.message // 获取实际的消息数据
+			this.logger.debug(`received message: ${JSON.stringify(messageData)}`, 'MessagesGateway')
+			const canSend = await this.messagesService.canUserSendToChat(userId, messageData.chatId)
 
-			if (!user || !user.sub) {
-				this.logger.warn(`No authenticated user found for client ${client.id}`, 'WebSocket')
-				client.emit('error', { message: 'Authentication required' })
-				return { success: false, error: 'Authentication required' }
+			if (!canSend) {
+				throw new Error('No permission to send message to this chat')
 			}
-
-			this.logger.debug(`Received message: ${JSON.stringify(data)}`, 'MessagesGateway')
-
-			const { type, message } = data
-
-			// 安全地检查聊天室是否存在
-			const roomName = `chat_${message.chatId}`
-			let roomClients = []
-			let roomExists = false
-
-			try {
-				if (this.server && this.server.sockets && this.server.sockets.adapter) {
-					const room = this.server.sockets.adapter.rooms?.get(roomName)
-					if (room) {
-						roomExists = true
-						roomClients = Array.from(room)
-						this.logger.debug(`Room ${roomName} has ${room.size} clients: ${roomClients.join(', ')}`, 'MessagesGateway')
-					} else {
-						this.logger.debug(`Room ${roomName} does not exist or is empty`, 'MessagesGateway')
-					}
-				} else {
-					this.logger.warn('Socket server or adapter not fully initialized', 'MessagesGateway')
-				}
-			} catch (err) {
-				this.logger.error(`Error checking room: ${err.message}`, err.stack, 'MessagesGateway')
-			}
-
-			// 验证用户是否有权限发送消息到这个聊天
-			const canSendMessage = await this.messagesService.canUserSendToChat(user.sub, message.chatId)
-			if (!canSendMessage) {
-				this.logger.warn(`User ${user.sub} not authorized to send message to chat ${message.chatId}`, 'WebSocket')
-				client.emit('error', { message: 'Not authorized to send message to this chat' })
-				return { success: false, error: 'Not authorized to send message to this chat' }
-			}
-
-			this.logger.debug(`User ${user.sub} sending message to chat ${message.chatId}`, 'MessagesGateway')
 
 			// 创建消息
-			const result = await this.messagesService.create({
-				chatId: message.chatId,
-				senderId: user.sub,
-				receiverId: message.receiverId,
-				type: message.type,
-				content: message.content,
-				metadata: message.metadata,
+			const message = await this.messagesService.create({
+				...messageData,
+				senderId: userId,
+				status: MessageStatus.SENT,
 			})
 
-			// 构建响应
-			const response = {
-				type: 'message',
-				data: {
-					...result,
-					tempId: message.tempId,
-				},
-				timestamp: new Date(),
-			}
+			this.logger.debug(`Created message: ${JSON.stringify(message)}`, 'MessagesGateway')
 
-			// 发送给发送者确认
-			this.logger.debug(`Sending messageConfirm to sender ${user.sub}`, 'MessagesGateway')
-			client.emit('messageConfirm', {
-				type: 'messageConfirm',
-				data: {
-					tempId: message.tempId,
-					message: result,
-				},
+			// 1. 发送给发送者确认消息
+			client.emit(WebSocketEvent.MESSAGE_SENT, {
+				type: WebSocketEvent.MESSAGE_SENT,
+				data: message,
+				tempId: messageData.tempId, // 返回临时ID以便前端关联
 				timestamp: new Date(),
 			})
 
-			// 广播给聊天室中的其他用户
-			this.logger.debug(`Broadcasting message to room ${roomName}`, 'MessagesGateway')
-			try {
-				client.to(roomName).emit('message', response)
-			} catch (err) {
-				this.logger.error(`Error broadcasting to room: ${err.message}`, err.stack, 'MessagesGateway')
-			}
+			// 2. 发送给聊天室其他成员
+			client.to(`chat_${messageData.chatId}`).emit('message', {
+				type: WebSocketEvent.NEW_MESSAGE,
+				data: message,
+				timestamp: new Date(),
+			})
 
-			// 检查是否有接收者在线，如果不在聊天室中，单独发送
-			const receiverId = message.receiverId
-			if (receiverId) {
-				this.logger.debug(`Checking if receiver ${receiverId} is in room ${roomName}`, 'MessagesGateway')
-
-				let isReceiverInRoom = false
-
-				try {
-					if (roomExists && this.server && this.server.sockets) {
-						isReceiverInRoom = roomClients.some(socketId => {
-							try {
-								const socket = this.server.sockets.sockets.get(socketId)
-								return socket?.data?.user?.sub === receiverId
-							} catch (err) {
-								this.logger.error(`Error checking socket: ${err.message}`, err.stack, 'MessagesGateway')
-								return false
-							}
-						})
-					}
-				} catch (err) {
-					this.logger.error(`Error checking if receiver in room: ${err.message}`, err.stack, 'MessagesGateway')
-				}
-
-				if (!isReceiverInRoom) {
-					this.logger.debug(`Receiver ${receiverId} not in room, sending directly`, 'MessagesGateway')
-					try {
-						this.server.to(`user_${receiverId}`).emit('message', response)
-					} catch (err) {
-						this.logger.error(`Error sending to user: ${err.message}`, err.stack, 'MessagesGateway')
-					}
+			// 3. 如果是私聊，确保接收者收到消息
+			if (messageData.receiverId) {
+				const receiverSocketId = this.userSockets.get(messageData.receiverId)
+				if (receiverSocketId) {
+					this.server.to(receiverSocketId).emit('message', {
+						type: WebSocketEvent.NEW_MESSAGE,
+						data: message,
+						timestamp: new Date(),
+					})
 				}
 			}
 
-			this.logger.debug(`Message sent to chat ${message.chatId}`, 'MessagesGateway')
-
-			return { success: true, message: result }
+			return message
 		} catch (error) {
-			this.logger.error(`Error sending message: ${error.message}`, error.stack, 'MessagesGateway')
-
-			// 发送失败状态给发送者
-			try {
-				client.emit('messageError', {
-					type: 'messageError',
-					data: {
-						tempId: data.message?.tempId,
-						error: error.message,
-						originalMessage: data,
-					},
-					timestamp: new Date(),
-				})
-			} catch (err) {
-				this.logger.error(`Error sending error message: ${err.message}`, err.stack, 'MessagesGateway')
-			}
-
-			return { success: false, error: error.message }
+			this.logger.error(`Error sending message: ${error.message}`, error.stack)
+			// 发送错误消息给发送者
+			client.emit('error', {
+				type: 'MESSAGE_ERROR',
+				error: error.message,
+				tempId: data.message?.tempId, // 返回临时ID以便前端处理错误
+				timestamp: new Date(),
+			})
+			throw error
 		}
 	}
 

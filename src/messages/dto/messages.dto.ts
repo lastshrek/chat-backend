@@ -118,6 +118,9 @@ export class CreateMessageDto {
 
 	@ApiPropertyOptional({ enum: MessageStatus, description: '消息状态', example: MessageStatus.SENT })
 	status?: MessageStatus
+
+	@ApiPropertyOptional({ description: '临时消息ID，用于前端消息关联', example: 1740804835283 })
+	tempId?: number
 }
 
 @ApiExtraModels(TextMetadata, FileMetadata, VoiceMetadata, LinkMetadata, ImageMetadata, VideoMetadata)

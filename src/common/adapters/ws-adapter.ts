@@ -17,11 +17,6 @@ export class WebSocketAdapter extends IoAdapter {
 	}
 
 	createIOServer(port: number, options?: ServerOptions) {
-		this.logger.log('WebSocket 服务器配置:', {
-			port,
-			options,
-		})
-
 		const server = super.createIOServer(port, {
 			...options,
 			cors: {

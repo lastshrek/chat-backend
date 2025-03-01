@@ -11,11 +11,21 @@ import {
 	UseInterceptors,
 	UseGuards,
 	Request,
+	BadRequestException,
 } from '@nestjs/common'
 import { MessagesService } from './messages.service'
 import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto } from './dto/messages.dto'
 import { MessageStatus, MessageType } from '@prisma/client'
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger'
+import {
+	ApiTags,
+	ApiOperation,
+	ApiResponse,
+	ApiParam,
+	ApiQuery,
+	ApiBearerAuth,
+	ApiConsumes,
+	ApiBody,
+} from '@nestjs/swagger'
 import { Response } from '../common/interfaces/response.interface'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { MinioService } from '../common/services/minio.service'
@@ -132,8 +142,36 @@ export class MessagesController {
 	}
 
 	@Post('upload')
-	@UseInterceptors(FileInterceptor('file'))
+	@UseInterceptors(
+		FileInterceptor('file', {
+			limits: {
+				fileSize: 10 * 1024 * 1024, // 10MB
+			},
+		})
+	)
+	@ApiConsumes('multipart/form-data')
+	@ApiBody({
+		schema: {
+			type: 'object',
+			properties: {
+				file: {
+					type: 'string',
+					format: 'binary',
+				},
+				type: {
+					type: 'string',
+					enum: ['voice', 'image', 'video'],
+					description: '文件类型',
+				},
+			},
+			required: ['file', 'type'],
+		},
+	})
 	async uploadFile(@UploadedFile() file: Express.Multer.File, @Body('type') type: 'voice' | 'image' | 'video') {
+		if (!type) {
+			throw new BadRequestException('File type is required')
+		}
+
 		const result = await this.minioService.uploadFile(file.buffer, type, {
 			'original-name': file.originalname,
 			'content-type': file.mimetype,

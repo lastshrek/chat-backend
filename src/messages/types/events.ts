@@ -9,7 +9,7 @@ export enum WebSocketEvent {
 	// 消息相关
 	NEW_MESSAGE = 'new_message',
 	MESSAGE_READ = 'message_read',
-
+	MESSAGE_SENT = 'message_sent',
 	// 状态相关
 	TYPING = 'typing',
 	STOP_TYPING = 'stop_typing',
