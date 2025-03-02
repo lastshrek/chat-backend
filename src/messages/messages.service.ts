@@ -22,9 +22,9 @@ export class MessagesService {
 					throw new BadRequestException('File message requires fileName and fileSize')
 				}
 				break
-			case MessageType.VOICE:
+			case MessageType.AUDIO:
 				if (!metadata || !('duration' in metadata) || !('url' in metadata)) {
-					throw new BadRequestException('Voice message requires duration and url')
+					throw new BadRequestException('Audio message requires duration and url')
 				}
 				break
 			case MessageType.LINK:
@@ -207,92 +207,9 @@ export class MessagesService {
 		})
 	}
 
-	async getUserChats(userId: number, page = 1, limit = 20) {
-		// 1. 获取用户的所有聊天
-		const chats = await this.prisma.chat.findMany({
-			where: {
-				participants: {
-					some: {
-						userId,
-					},
-				},
-			},
-			include: {
-				participants: {
-					include: {
-						user: {
-							select: {
-								id: true,
-								username: true,
-								avatar: true,
-							},
-						},
-					},
-				},
-				messages: {
-					take: 1,
-					orderBy: {
-						createdAt: 'desc',
-					},
-					include: {
-						sender: {
-							select: {
-								id: true,
-								username: true,
-								avatar: true,
-							},
-						},
-					},
-				},
-				_count: {
-					select: {
-						messages: true,
-					},
-				},
-			},
-			orderBy: {
-				updatedAt: 'desc', // 按最后活动时间排序
-			},
-			skip: (page - 1) * limit,
-			take: limit,
-		})
-
-		// 2. 获取每个聊天的未读消息数
-		const chatsWithUnread = await Promise.all(
-			chats.map(async chat => {
-				const unreadCount = await this.prisma.message.count({
-					where: {
-						chatId: chat.id,
-						receiverId: userId,
-						status: {
-							not: 'READ',
-						},
-					},
-				})
-
-				return {
-					id: chat.id,
-					name: chat.name,
-					type: chat.type,
-					participants: chat.participants.map(p => ({
-						id: p.user.id,
-						username: p.user.username,
-						avatar: p.user.avatar,
-					})),
-					otherUser: chat.type === ChatType.PRIVATE ? chat.participants.find(p => p.userId !== userId)?.user : null,
-					lastMessage: chat.messages[0] || null,
-					unreadCount,
-					totalMessages: chat._count.messages,
-					updatedAt: chat.updatedAt,
-					createdAt: chat.createdAt,
-				}
-			})
-		)
-
-		return {
-			chats: chatsWithUnread,
-			hasMore: chatsWithUnread.length === limit,
-			total: await this.prisma.chat.count({
+	async getUserChats(userId: number, page: number, limit: number) {
+		try {
+			const chats = await this.prisma.chat.findMany({
 				where: {
 					participants: {
 						some: {
@@ -300,7 +217,85 @@ export class MessagesService {
 						},
 					},
 				},
-			}),
+				include: {
+					participants: {
+						include: {
+							user: {
+								select: {
+									id: true,
+									username: true,
+									avatar: true,
+									employeeId: true,
+									dutyName: true,
+								},
+							},
+						},
+					},
+					creator: {
+						select: {
+							id: true,
+							username: true,
+							avatar: true,
+							employeeId: true,
+							dutyName: true,
+						},
+					},
+					messages: {
+						take: 1,
+						orderBy: {
+							createdAt: 'desc',
+						},
+						include: {
+							sender: {
+								select: {
+									id: true,
+									username: true,
+									avatar: true,
+								},
+							},
+						},
+					},
+					_count: {
+						select: {
+							participants: true,
+							messages: true,
+						},
+					},
+				},
+				orderBy: {
+					updatedAt: 'desc',
+				},
+				skip: (page - 1) * limit,
+				take: limit,
+			})
+
+			// 处理返回数据
+			return chats.map(chat => ({
+				id: chat.id,
+				name: chat.name,
+				type: chat.type,
+				avatar: chat.avatar,
+				description: chat.description,
+				createdAt: chat.createdAt,
+				updatedAt: chat.updatedAt,
+				creator: chat.creator,
+				participants: chat.participants.map(p => ({
+					id: p.user.id,
+					username: p.user.username,
+					avatar: p.user.avatar,
+					employeeId: p.user.employeeId,
+					dutyName: p.user.dutyName,
+					role: p.role,
+					joinedAt: p.joinedAt,
+				})),
+				lastMessage: chat.messages[0] || null,
+				unreadCount: 0, // 这个需要单独查询
+				participantsCount: chat._count.participants,
+				messagesCount: chat._count.messages,
+			}))
+		} catch (error) {
+			this.logger.error(`Error getting user chats: ${error.message}`, error.stack)
+			throw error
 		}
 	}
 

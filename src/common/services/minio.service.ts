@@ -35,7 +35,7 @@ export class MinioService {
 
 	async uploadFile(
 		file: Buffer,
-		type: 'voice' | 'image' | 'video' | 'file',
+		type: 'audio' | 'image' | 'video' | 'file',
 		metadata: Record<string, string> = {}
 	): Promise<{ url: string; thumbnail?: string; width?: number; height?: number }> {
 		try {
@@ -97,7 +97,7 @@ export class MinioService {
 
 	private getExtension(type: string): string {
 		switch (type) {
-			case 'voice':
+			case 'audio':
 				return 'mp3'
 			case 'image':
 				return 'jpg'
@@ -112,7 +112,7 @@ export class MinioService {
 
 	private getMimeType(type: string): string {
 		switch (type) {
-			case 'voice':
+			case 'audio':
 				return 'audio/mpeg'
 			case 'image':
 				return 'image/jpeg'

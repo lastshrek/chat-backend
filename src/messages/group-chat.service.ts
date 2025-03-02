@@ -1,11 +1,116 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { LoggerService } from '../common/services/logger.service'
+import { MinioService } from '../common/services/minio.service'
 import { CreateGroupChatDto, UpdateGroupChatDto, AddGroupMembersDto, UpdateMemberRoleDto } from './dto/group-chat.dto'
+import * as sharp from 'sharp'
+import axios from 'axios'
+import { MessageType, MessageStatus } from '@prisma/client'
 
 @Injectable()
 export class GroupChatService {
-	constructor(private readonly prisma: PrismaService, private readonly logger: LoggerService) {}
+	constructor(
+		private readonly prisma: PrismaService,
+		private readonly logger: LoggerService,
+		private readonly minioService: MinioService
+	) {}
+
+	private async generateGroupAvatar(participants: { user: { avatar: string } }[]): Promise<Buffer> {
+		const userCount = participants.length
+		const cellSize = 100 // 基础头像大小
+		const padding = 10 // 间距
+		const borderRadius = 15 // 圆角大小
+		const rows = 3 // 固定为3行
+		const cols = 3 // 固定为3列
+		let activeRows: number // 实际使用的行数
+
+		// 确定实际使用的行数
+		if (userCount <= 4) {
+			activeRows = 2 // 2x2布局
+		} else if (userCount <= 6) {
+			activeRows = 2 // 2x3布局
+		} else {
+			activeRows = 3 // 3x3布局
+		}
+
+		// 计算总宽度和高度（总是保持3x3的高度）
+		const totalWidth = cols * cellSize + (cols + 1) * padding
+		const totalHeight = rows * cellSize + (rows + 1) * padding
+
+		// 计算垂直居中的起始位置
+		const unusedRows = rows - activeRows
+		const verticalOffset = (unusedRows * (cellSize + padding)) / 2
+
+		// 创建背景
+		const background = sharp({
+			create: {
+				width: totalWidth,
+				height: totalHeight,
+				channels: 4,
+				background: { r: 240, g: 240, b: 240, alpha: 1 },
+			},
+		})
+
+		const compositeOperations = []
+		const maxAvatars = userCount <= 4 ? 4 : userCount <= 6 ? 6 : 9
+
+		// 下载并处理每个用户的头像
+		for (let i = 0; i < Math.min(userCount, maxAvatars); i++) {
+			try {
+				const avatarUrl = participants[i].user.avatar
+				const response = await axios.get(avatarUrl, { responseType: 'arraybuffer' })
+				const avatarBuffer = Buffer.from(response.data)
+
+				// 计算位置
+				let row, col
+				if (userCount <= 4) {
+					// 2x2布局
+					row = Math.floor(i / 2)
+					col = (i % 2) + (3 - 2) / 2 // 水平居中
+				} else if (userCount <= 6) {
+					// 2x3布局
+					row = Math.floor(i / 3)
+					col = i % 3
+				} else {
+					// 3x3布局
+					row = Math.floor(i / 3)
+					col = i % 3
+				}
+
+				// 处理头像（添加圆角）
+				const processedAvatar = await sharp(avatarBuffer)
+					.resize(cellSize, cellSize, {
+						fit: 'cover',
+						position: 'center',
+					})
+					.composite([
+						{
+							input: Buffer.from(
+								`<svg><rect x="0" y="0" width="${cellSize}" height="${cellSize}" rx="${borderRadius}" ry="${borderRadius}"/></svg>`
+							),
+							blend: 'dest-in',
+						},
+					])
+					.toBuffer()
+
+				this.logger.debug(`Adding avatar at position: row=${row}, col=${col}, i=${i}`)
+
+				// 计算带内边距和垂直居中的位置
+				compositeOperations.push({
+					input: processedAvatar,
+					top: row * cellSize + (row + 1) * padding + verticalOffset,
+					left: col * cellSize + (col + 1) * padding,
+				})
+			} catch (error) {
+				this.logger.error(`Error processing avatar: ${error.message}`)
+			}
+		}
+
+		// 合成最终图像
+		const finalImage = await background.composite(compositeOperations).png().toBuffer()
+
+		return finalImage
+	}
 
 	/**
 	 * 创建群聊
@@ -20,21 +125,30 @@ export class GroupChatService {
 			// 验证所有成员是否存在
 			const users = await this.prisma.user.findMany({
 				where: { id: { in: dto.memberIds } },
-				select: { id: true },
+				select: {
+					id: true,
+					avatar: true,
+				},
 			})
 
 			if (users.length !== dto.memberIds.length) {
 				throw new BadRequestException('一个或多个用户不存在')
 			}
 
+			// 生成群头像
+			const participants = users.map(user => ({ user }))
+			const groupAvatar = await this.generateGroupAvatar(participants)
+
+			// 上传群头像到 MinIO
+			const avatarUrl = await this.uploadGroupAvatar(groupAvatar)
+
 			// 创建群聊
 			const chat = await this.prisma.chat.create({
 				data: {
 					name: dto.name,
-					description: dto.description,
-					avatar: dto.avatar,
 					type: 'GROUP',
 					creatorId: userId,
+					avatar: avatarUrl,
 					participants: {
 						create: dto.memberIds.map(memberId => ({
 							userId: memberId,
@@ -64,10 +178,53 @@ export class GroupChatService {
 				},
 			})
 
-			this.logger.debug(`Group chat created: ${chat.id}`, 'GroupChatService')
-			return chat
+			// 创建系统消息：xx邀请x、x、x加入了群聊
+			const invitedUsers = chat.participants.filter(p => p.userId !== userId).map(p => p.user.username)
+
+			const systemMessage = await this.prisma.message.create({
+				data: {
+					chatId: chat.id,
+					content: `${chat.creator.username}邀请${invitedUsers.join('、')}加入了群聊`,
+					type: MessageType.SYSTEM,
+					senderId: userId,
+					receiverId: userId,
+					status: MessageStatus.READ,
+					metadata: {
+						type: 'GROUP_CREATE',
+						creator: chat.creator.username,
+						invitedUsers: invitedUsers,
+					},
+				},
+				include: {
+					sender: {
+						select: {
+							id: true,
+							username: true,
+							avatar: true,
+						},
+					},
+				},
+			})
+
+			return {
+				...chat,
+				systemMessage,
+			}
 		} catch (error) {
 			this.logger.error(`Error creating group chat: ${error.message}`, error.stack, 'GroupChatService')
+			throw error
+		}
+	}
+
+	private async uploadGroupAvatar(buffer: Buffer): Promise<string> {
+		try {
+			const result = await this.minioService.uploadFile(buffer, 'image', {
+				'original-name': 'group-avatar.png',
+				'content-type': 'image/png',
+			})
+			return result.url
+		} catch (error) {
+			this.logger.error(`Error uploading group avatar: ${error.message}`, error.stack)
 			throw error
 		}
 	}

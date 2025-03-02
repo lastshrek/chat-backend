@@ -160,16 +160,19 @@ export class MessagesController {
 				},
 				type: {
 					type: 'string',
-					enum: ['voice', 'image', 'video'],
+					enum: ['audio', 'image', 'video', 'file'],
 					description: '文件类型',
 				},
 			},
 			required: ['file', 'type'],
 		},
 	})
-	async uploadFile(@UploadedFile() file: Express.Multer.File, @Body('type') type: 'voice' | 'image' | 'video') {
-		if (!type) {
-			throw new BadRequestException('File type is required')
+	async uploadFile(
+		@UploadedFile() file: Express.Multer.File,
+		@Body('type') type: 'audio' | 'image' | 'video' | 'file'
+	) {
+		if (!file) {
+			throw new BadRequestException('No file uploaded')
 		}
 
 		const result = await this.minioService.uploadFile(file.buffer, type, {

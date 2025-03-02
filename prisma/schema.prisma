@@ -61,17 +61,16 @@ model Message {
 }
 
 model Chat {
-  id          Int      @id @default(autoincrement())
-  name        String? // 群聊名称，私聊为null
-  avatar      String? // 群聊头像，私聊为null
-  description String? // 群聊描述，私聊为null
-  type        ChatType @default(PRIVATE)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  creatorId   Int? // 群聊创建者ID，私聊为null
-  creator     User?    @relation("CreatedChats", fields: [creatorId], references: [id])
-
-  // 关系
+  id           Int               @id @default(autoincrement())
+  type         ChatType
+  name         String?
+  description  String?
+  // 修改 avatar 字段类型为 Text
+  avatar       String?           @db.Text
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  creatorId    Int?
+  creator      User?             @relation("CreatedChats", fields: [creatorId], references: [id])
   participants ChatParticipant[]
   messages     Message[]
 
@@ -154,11 +153,12 @@ enum MessageStatus {
 
 enum MessageType {
   TEXT
-  VOICE
-  FILE
-  LINK
   IMAGE
   VIDEO
+  AUDIO
+  FILE
+  LINK
+  SYSTEM
 }
 
 enum FriendRequestStatus {

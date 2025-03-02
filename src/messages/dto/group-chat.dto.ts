@@ -8,17 +8,6 @@ export class CreateGroupChatDto {
 	@MaxLength(50)
 	name: string
 
-	@ApiProperty({ description: '群聊描述', required: false })
-	@IsString()
-	@IsOptional()
-	@MaxLength(200)
-	description?: string
-
-	@ApiProperty({ description: '群聊头像URL', required: false })
-	@IsString()
-	@IsOptional()
-	avatar?: string
-
 	@ApiProperty({ description: '初始成员ID列表' })
 	@IsArray()
 	@IsNumber({}, { each: true })
