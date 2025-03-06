@@ -58,6 +58,10 @@ model Message {
   receiver   User @relation("ReceivedMessages", fields: [receiverId], references: [id])
   chatId     Int
   chat       Chat @relation(fields: [chatId], references: [id])
+
+  // 添加索引
+  @@index([chatId, type])
+  @@index([senderId, receiverId])
 }
 
 model Chat {

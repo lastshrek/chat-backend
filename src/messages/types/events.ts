@@ -21,4 +21,8 @@ export enum WebSocketEvent {
 	GROUP_MEMBER_REMOVED = 'groupMemberRemoved',
 	GROUP_MEMBER_ROLE_UPDATED = 'groupMemberRoleUpdated',
 	GROUP_CHAT_DISSOLVED = 'groupChatDissolved',
+
+	// @ 相关事件
+	MENTION = 'mention',
+	MENTION_ALL = 'mentionAll',
 }

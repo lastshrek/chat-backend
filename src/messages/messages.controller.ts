@@ -378,4 +378,32 @@ export class MessagesController {
 	) {
 		return this.messagesService.getMessagesBefore(+messageId, +chatId, +limit)
 	}
+
+	@Get('chats/:id/participants')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取聊天参与者列表（用于@功能）' })
+	@ApiResponse({ status: 200, description: '成功获取参与者列表' })
+	async getChatParticipants(@Param('id') chatId: string, @Request() req) {
+		const participants = await this.messagesService.getChatParticipants(+chatId, req.user.sub)
+		return {
+			code: 200,
+			data: participants,
+			message: 'success',
+		}
+	}
+
+	@Get('mentions')
+	@UseGuards(JwtAuthGuard)
+	@ApiBearerAuth()
+	@ApiOperation({ summary: '获取@我的消息' })
+	@ApiResponse({ status: 200, description: '成功获取@我的消息' })
+	async getMentions(@Request() req, @Query('page') page = '1', @Query('limit') limit = '20') {
+		const mentions = await this.messagesService.getUserMentions(req.user.sub, +page, +limit)
+		return {
+			code: 200,
+			data: mentions,
+			message: 'success',
+		}
+	}
 }

@@ -10,7 +10,7 @@ import {
 import { OnModuleInit, Inject, forwardRef } from '@nestjs/common'
 import { Server, Socket } from 'socket.io'
 import { MessagesService } from './messages.service'
-import { CreateMessageDto } from './dto/messages.dto'
+import { CreateMessageDto, MessageMetadata } from './dto/messages.dto'
 import { MessagesEventsService } from './messages-events.service'
 import { LoggerService } from '../common/services/logger.service'
 import { WebSocketEvent } from './types/events'
@@ -290,24 +290,101 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 	}
 
 	@SubscribeMessage('message')
-	async handleMessage(
-		@MessageBody() data: { type: string; message: CreateMessageDto },
-		@ConnectedSocket() client: Socket
-	) {
+	async handleMessage(@ConnectedSocket() client: Socket, @MessageBody() messageData: CreateMessageDto) {
 		try {
 			const userId = client.data.user.sub
-			const messageData = data.message // 获取实际的消息数据
 			this.logger.debug(`received message: ${JSON.stringify(messageData)}`, 'MessagesGateway')
-			const canSend = await this.messagesService.canUserSendToChat(userId, messageData.chatId)
 
+			// 基本字段校验
+			if (!messageData.chatId) {
+				throw new Error('聊天ID不能为空')
+			}
+
+			if (!messageData.type) {
+				throw new Error('消息类型不能为空')
+			}
+
+			if (!messageData.content && messageData.type === MessageType.TEXT) {
+				throw new Error('文本消息内容不能为空')
+			}
+
+			// 检查是否是群聊消息
+			const chat = await this.prisma.chat.findUnique({
+				where: { id: messageData.chatId },
+				select: { type: true },
+			})
+
+			if (!chat) {
+				throw new Error('聊天不存在')
+			}
+
+			// 群聊特定校验
+			if (chat.type === 'GROUP') {
+				// 群聊消息不应该有 receiverId
+				if (messageData.receiverId) {
+					this.logger.warn(`群聊消息不应该有接收者ID，已自动移除`, 'MessagesGateway')
+					messageData.receiverId = undefined
+				}
+
+				// @ 消息校验
+				if (
+					messageData.type === MessageType.TEXT &&
+					messageData.metadata &&
+					(messageData.metadata as any).mentionedUserIds
+				) {
+					// 验证 mentionedUserIds 是否为数组
+					const mentionedUserIds = (messageData.metadata as any).mentionedUserIds
+					if (!Array.isArray(mentionedUserIds)) {
+						throw new Error('mentionedUserIds 必须是数组')
+					}
+
+					// 验证数组元素是否为数字
+					for (const id of mentionedUserIds) {
+						if (typeof id !== 'number') {
+							throw new Error('mentionedUserIds 数组元素必须是数字')
+						}
+					}
+				}
+
+				// 验证 mentionAll 是否为布尔值
+				if (
+					messageData.type === MessageType.TEXT &&
+					messageData.metadata &&
+					(messageData.metadata as any).mentionAll !== undefined
+				) {
+					const mentionAll = (messageData.metadata as any).mentionAll
+					if (typeof mentionAll !== 'boolean') {
+						throw new Error('mentionAll 必须是布尔值')
+					}
+				}
+			} else {
+				// 私聊消息必须有 receiverId
+				if (!messageData.receiverId) {
+					throw new Error('私聊消息必须指定接收者ID')
+				}
+			}
+
+			// 使用 Service 的校验方法
+			try {
+				this.messagesService.validateMessageMetadata(messageData.type, messageData.metadata as MessageMetadata)
+			} catch (error) {
+				throw new Error(error.message)
+			}
+
+			// 权限校验
+			const canSend = await this.messagesService.canUserSendToChat(userId, messageData.chatId)
 			if (!canSend) {
-				throw new Error('No permission to send message to this chat')
+				throw new Error('您没有权限向此聊天发送消息')
 			}
 
 			// 创建消息
 			const message = await this.messagesService.create({
-				...messageData,
+				chatId: messageData.chatId,
 				senderId: userId,
+				receiverId: messageData.receiverId,
+				type: messageData.type,
+				content: messageData.content,
+				metadata: messageData.metadata,
 				status: MessageStatus.SENT,
 			})
 
@@ -340,6 +417,62 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 				}
 			}
 
+			// 处理 @ 消息的特殊通知
+			if (message.type === MessageType.TEXT && (message.metadata as any)?.mentionedUserIds?.length > 0) {
+				// 获取聊天信息
+				const chat = await this.prisma.chat.findUnique({
+					where: { id: message.chatId },
+					select: { name: true, type: true },
+				})
+
+				// 向被@的用户发送特殊通知
+				for (const mentionedUserId of (message.metadata as any).mentionedUserIds) {
+					if (mentionedUserId !== userId) {
+						// 不给自己发通知
+						this.server.to(`user_${mentionedUserId}`).emit('mentionNotification', {
+							messageId: message.id,
+							chatId: message.chatId,
+							chatName: chat.name,
+							chatType: chat.type,
+							sender: {
+								id: userId,
+								username: message.sender.username,
+								avatar: message.sender.avatar,
+							},
+							content: message.content,
+							createdAt: message.createdAt,
+						})
+					}
+				}
+
+				// 处理@所有人的情况
+				if ((message.metadata as any)?.mentionAll) {
+					const participants = await this.prisma.chatParticipant.findMany({
+						where: {
+							chatId: message.chatId,
+							userId: { not: userId }, // 排除发送者自己
+						},
+						select: { userId: true },
+					})
+
+					for (const participant of participants) {
+						this.server.to(`user_${participant.userId}`).emit('mentionAllNotification', {
+							messageId: message.id,
+							chatId: message.chatId,
+							chatName: chat.name,
+							chatType: chat.type,
+							sender: {
+								id: userId,
+								username: message.sender.username,
+								avatar: message.sender.avatar,
+							},
+							content: message.content,
+							createdAt: message.createdAt,
+						})
+					}
+				}
+			}
+
 			return message
 		} catch (error) {
 			this.logger.error(`Error sending message: ${error.message}`, error.stack)
@@ -347,10 +480,55 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 			client.emit('error', {
 				type: 'MESSAGE_ERROR',
 				error: error.message,
-				tempId: data.message?.tempId, // 返回临时ID以便前端处理错误
+				tempId: messageData.tempId,
 				timestamp: new Date(),
 			})
 			throw error
+		}
+	}
+
+	// 根据消息类型进行特定校验
+	private validateMessageByType(messageData: CreateMessageDto): void {
+		switch (messageData.type) {
+			case MessageType.IMAGE:
+				if (
+					!messageData.metadata ||
+					!(messageData.metadata as any).url ||
+					!(messageData.metadata as any).width ||
+					!(messageData.metadata as any).height
+				) {
+					throw new Error('图片消息必须包含 url、width 和 height')
+				}
+				break
+
+			case MessageType.VIDEO:
+				if (!messageData.metadata || !(messageData.metadata as any).url || !(messageData.metadata as any).duration) {
+					throw new Error('视频消息必须包含 url 和 duration')
+				}
+				break
+
+			case MessageType.AUDIO:
+				if (!messageData.metadata || !(messageData.metadata as any).url || !(messageData.metadata as any).duration) {
+					throw new Error('音频消息必须包含 url 和 duration')
+				}
+				break
+
+			case MessageType.FILE:
+				if (
+					!messageData.metadata ||
+					!(messageData.metadata as any).url ||
+					!(messageData.metadata as any).fileName ||
+					!(messageData.metadata as any).fileSize
+				) {
+					throw new Error('文件消息必须包含 url、fileName 和 fileSize')
+				}
+				break
+
+			case MessageType.LINK:
+				if (!messageData.metadata || !(messageData.metadata as any).url) {
+					throw new Error('链接消息必须包含 url')
+				}
+				break
 		}
 	}
 

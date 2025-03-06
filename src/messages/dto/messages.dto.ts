@@ -8,6 +8,20 @@ export interface IMessageMetadata {}
 export class TextMetadata implements IMessageMetadata {
 	@ApiProperty({ description: '文本内容' })
 	content: string
+
+	@ApiPropertyOptional({
+		description: '被@的用户ID列表',
+		type: 'array',
+		items: { type: 'number' },
+	})
+	mentionedUserIds?: number[]
+
+	@ApiPropertyOptional({
+		description: '是否@所有人',
+		type: 'boolean',
+		default: false,
+	})
+	mentionAll?: boolean
 }
 
 // 文件消息元数据

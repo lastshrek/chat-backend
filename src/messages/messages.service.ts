@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common'
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateMessageDto, UpdateMessageDto, UpdateMessageStatusDto, MessageMetadata } from './dto/messages.dto'
 import { MessageStatus, MessageType, Prisma, ChatType } from '@prisma/client'
@@ -15,31 +15,31 @@ export class MessagesService {
 		private readonly logger: LoggerService
 	) {}
 
-	private validateMessageMetadata(type: MessageType, metadata?: MessageMetadata): void {
+	public validateMessageMetadata(type: MessageType, metadata?: MessageMetadata): void {
 		switch (type) {
 			case MessageType.FILE:
-				if (!metadata || !('fileName' in metadata) || !('fileSize' in metadata)) {
-					throw new BadRequestException('File message requires fileName and fileSize')
+				if (!metadata || !('fileName' in metadata) || !('fileSize' in metadata) || !('url' in metadata)) {
+					throw new BadRequestException('文件消息必须包含 fileName、fileSize 和 url')
 				}
 				break
 			case MessageType.AUDIO:
 				if (!metadata || !('duration' in metadata) || !('url' in metadata)) {
-					throw new BadRequestException('Audio message requires duration and url')
+					throw new BadRequestException('音频消息必须包含 duration 和 url')
 				}
 				break
 			case MessageType.LINK:
 				if (!metadata || !('url' in metadata)) {
-					throw new BadRequestException('Link message requires url')
+					throw new BadRequestException('链接消息必须包含 url')
 				}
 				break
 			case MessageType.IMAGE:
 				if (!metadata || !('url' in metadata) || !('width' in metadata) || !('height' in metadata)) {
-					throw new BadRequestException('Image message requires url, width and height')
+					throw new BadRequestException('图片消息必须包含 url、width 和 height')
 				}
 				break
 			case MessageType.VIDEO:
 				if (!metadata || !('url' in metadata) || !('duration' in metadata)) {
-					throw new BadRequestException('Video message requires url and duration')
+					throw new BadRequestException('视频消息必须包含 url 和 duration')
 				}
 				break
 		}
@@ -48,12 +48,32 @@ export class MessagesService {
 	async create(data: {
 		chatId: number
 		senderId: number
-		receiverId: number
+		receiverId?: number
 		type: MessageType
 		content: string
 		metadata?: any
 		status?: MessageStatus
 	}) {
+		// 处理 @ 功能
+		if (data.type === MessageType.TEXT && data.metadata?.mentionedUserIds?.length > 0) {
+			// 验证被@的用户是否在群聊中
+			const chatParticipants = await this.prisma.chatParticipant.findMany({
+				where: {
+					chatId: data.chatId,
+					userId: {
+						in: data.metadata.mentionedUserIds,
+					},
+				},
+				select: {
+					userId: true,
+				},
+			})
+
+			// 过滤掉不在群聊中的用户ID
+			const validMentionedUserIds = chatParticipants.map(p => p.userId)
+			data.metadata.mentionedUserIds = validMentionedUserIds
+		}
+
 		return this.prisma.message.create({
 			data: {
 				chatId: data.chatId,
@@ -843,6 +863,124 @@ export class MessagesService {
 		} catch (error) {
 			this.logger.error(`Error checking user permission: ${error.message}`, error.stack, 'MessagesService')
 			return false
+		}
+	}
+
+	async getChatParticipants(chatId: number, userId: number) {
+		// 验证用户是否是聊天参与者
+		const isParticipant = await this.canUserSendToChat(userId, chatId)
+		if (!isParticipant) {
+			throw new ForbiddenException('您不是该聊天的参与者')
+		}
+
+		// 获取参与者列表
+		const participants = await this.prisma.chatParticipant.findMany({
+			where: { chatId },
+			include: {
+				user: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+						employeeId: true,
+						dutyName: true,
+					},
+				},
+			},
+			orderBy: {
+				user: {
+					username: 'asc',
+				},
+			},
+		})
+
+		return participants.map(p => ({
+			id: p.user.id,
+			username: p.user.username,
+			avatar: p.user.avatar,
+			employeeId: p.user.employeeId,
+			dutyName: p.user.dutyName,
+			role: p.role,
+		}))
+	}
+
+	async getUserMentions(userId: number, page: number, limit: number) {
+		// 查询@当前用户的消息
+		const messages = await this.prisma.message.findMany({
+			where: {
+				type: MessageType.TEXT,
+				OR: [
+					{
+						metadata: {
+							path: ['mentionedUserIds'] as any,
+							array_contains: userId,
+						},
+					},
+					{
+						metadata: {
+							path: ['mentionAll'] as any,
+							equals: true,
+						},
+						chat: {
+							participants: {
+								some: {
+									userId,
+								},
+							},
+						},
+					},
+				],
+			},
+			include: {
+				sender: {
+					select: {
+						id: true,
+						username: true,
+						avatar: true,
+					},
+				},
+				chat: {
+					select: {
+						id: true,
+						name: true,
+						type: true,
+						avatar: true,
+					},
+				},
+			},
+			orderBy: {
+				createdAt: 'desc',
+			},
+			skip: (page - 1) * limit,
+			take: limit,
+		})
+
+		return messages
+	}
+
+	// 添加群聊消息特定的校验方法
+	public validateGroupMessage(messageData: CreateMessageDto): void {
+		// 验证 @ 功能
+		if (messageData.type === MessageType.TEXT && messageData.metadata) {
+			const metadata = messageData.metadata as any
+
+			// 验证 mentionedUserIds
+			if (metadata.mentionedUserIds !== undefined) {
+				if (!Array.isArray(metadata.mentionedUserIds)) {
+					throw new BadRequestException('mentionedUserIds 必须是数组')
+				}
+
+				for (const id of metadata.mentionedUserIds) {
+					if (typeof id !== 'number') {
+						throw new BadRequestException('mentionedUserIds 数组元素必须是数字')
+					}
+				}
+			}
+
+			// 验证 mentionAll
+			if (metadata.mentionAll !== undefined && typeof metadata.mentionAll !== 'boolean') {
+				throw new BadRequestException('mentionAll 必须是布尔值')
+			}
 		}
 	}
 }
