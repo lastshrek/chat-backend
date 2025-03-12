@@ -24,16 +24,116 @@ import { GlobalJwtAuthGuard } from './common/guards/global-jwt-auth.guard'
 import { LoggerService } from './common/services/logger.service'
 import { Logger } from '@nestjs/common'
 
+// 自定义日志格式化函数
+function formatLog(context: string, message: string): string {
+	const emojis = {
+		// 系统相关
+		NestFactory: '🚀',
+		InstanceLoader: '\u{1F527}', // 扳手 Unicode
+		RoutesResolver: '🧭',
+		RouterExplorer: '🔍',
+		NestApplication: '✅',
+		WebSocketAdapter: '🔌',
+		WebSocketsController: '📡',
+		PackageLoader: '📦',
+
+		// 模块相关
+		MessagesModule: '💬',
+		UsersModule: '👤',
+		DocumentsModule: '📄',
+		MeetingsModule: '📹',
+		OrganizationsModule: '🏢',
+		RedisModule: '\u{1F504}', // 循环箭头 Unicode
+		EventsModule: '📣',
+		CommonModule: '🧰',
+		PrismaModule: '💾',
+		JwtModule: '🔑',
+
+		// 服务相关
+		MessagesService: '💬',
+		MessagesGateway: '📨',
+		UsersService: '👤',
+		DocumentsService: '📄',
+		DocumentsGateway: '📃',
+		MeetingsService: '📹',
+		MeetingsGateway: '📡',
+		OrganizationsService: '🏢',
+		RedisService: '\u{1F504}', // 循环箭头 Unicode
+		PrismaService: '💾',
+		LoggerService: '📝',
+		MinioService: '📦',
+		GroupChatService: '👥',
+
+		// 默认
+		WebSocket: '🔌',
+		default: '📌',
+	}
+
+	// 颜色映射
+	const colors = {
+		green: '\x1b[32m',
+		brightGreen: '\x1b[92m',
+		red: '\x1b[31m',
+		yellow: '\x1b[33m',
+		blue: '\x1b[34m',
+		magenta: '\x1b[35m',
+		cyan: '\x1b[36m',
+		white: '\x1b[37m',
+		brightWhite: '\x1b[97m',
+		reset: '\x1b[0m',
+		bold: '\x1b[1m',
+	}
+
+	// 获取对应的 emoji
+	let emoji = emojis.default
+
+	// 尝试精确匹配
+	if (emojis[context]) {
+		emoji = emojis[context]
+	} else {
+		// 尝试部分匹配
+		for (const key of Object.keys(emojis)) {
+			if (context.includes(key)) {
+				emoji = emojis[key]
+				break
+			}
+		}
+	}
+
+	// 为不同类型的日志设置不同的颜色
+	let contextColor = colors.green
+	let messageColor = colors.brightWhite
+
+	if (context.includes('Controller') || context.includes('Gateway')) {
+		contextColor = colors.cyan
+	} else if (context.includes('Service')) {
+		contextColor = colors.yellow
+	} else if (context.includes('Module')) {
+		contextColor = colors.magenta
+	} else if (context.includes('Nest')) {
+		contextColor = colors.blue
+	}
+
+	// 返回带颜色的格式化日志
+	return `${emoji} ${contextColor}[${context}]${colors.reset} ${messageColor}${message}${colors.reset}`
+}
+
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule, {
-		logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+		logger: {
+			log: (message, context) => console.log(formatLog(context, message)),
+			error: (message, trace, context) =>
+				console.error(
+					`❌ \x1b[31m\x1b[1m[${context}]\x1b[0m \x1b[91m${message}\x1b[0m${trace ? `\n\x1b[90m${trace}\x1b[0m` : ''}`
+				),
+			warn: (message, context) => console.warn(`⚠️ \x1b[33m\x1b[1m[${context}]\x1b[0m \x1b[93m${message}\x1b[0m`),
+			debug: (message, context) => console.debug(`�� \x1b[36m\x1b[1m[${context}]\x1b[0m \x1b[96m${message}\x1b[0m`),
+			verbose: (message, context) => console.log(`🔬 \x1b[35m\x1b[1m[${context}]\x1b[0m \x1b[95m${message}\x1b[0m`),
+		},
 	})
 
-	// 设置 WebSocket 适配器
-	const wsAdapter = new WebSocketAdapter(app)
-	app.useWebSocketAdapter(wsAdapter)
-
 	const configService = app.get(ConfigService)
+	const port = configService.get('PORT') || 3000
 
 	// 启用 CORS
 	app.enableCors({
@@ -53,6 +153,7 @@ async function bootstrap() {
 		.setVersion('1.0')
 		.addTag('messages', '消息相关接口')
 		.addTag('users', '用户相关接口')
+		.addTag('websockets', 'WebSocket 相关接口')
 		.addBearerAuth()
 		.build()
 
@@ -92,6 +193,20 @@ async function bootstrap() {
 		customSiteTitle: 'Chat API Documentation',
 	})
 
-	await app.listen(3000)
+	// 配置全局管道
+	app.useGlobalPipes(
+		new ValidationPipe({
+			whitelist: true,
+			transform: true,
+			transformOptions: { enableImplicitConversion: true },
+		})
+	)
+
+	// 配置 WebSocket 适配器
+	app.useWebSocketAdapter(new WebSocketAdapter(app))
+
+	// 启动应用
+	await app.listen(port)
+	console.log(`🚀 Application is running on: http://localhost:${port}`)
 }
 bootstrap()

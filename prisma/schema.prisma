@@ -39,6 +39,12 @@ model User {
   lastEditDocuments Document[] @relation("LastEditedDocuments")
   Chat              Chat[]     @relation("CreatedChats")
 
+  createdProjects    Project[]              @relation("ProjectCreator")
+  projectMemberships ProjectMember[]
+  pinnedMessages     ProjectPinnedMessage[]
+  projectFiles       ProjectFile[]
+  projectLinks       ProjectLink[]
+
   @@map("User")
 }
 
@@ -52,12 +58,13 @@ model Message {
   updatedAt DateTime      @updatedAt
 
   // 关系
-  senderId   Int
-  sender     User @relation("SentMessages", fields: [senderId], references: [id])
-  receiverId Int
-  receiver   User @relation("ReceivedMessages", fields: [receiverId], references: [id])
-  chatId     Int
-  chat       Chat @relation(fields: [chatId], references: [id])
+  senderId             Int
+  sender               User                   @relation("SentMessages", fields: [senderId], references: [id])
+  receiverId           Int
+  receiver             User                   @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  chatId               Int
+  chat                 Chat                   @relation(fields: [chatId], references: [id])
+  ProjectPinnedMessage ProjectPinnedMessage[]
 
   // 添加索引
   @@index([chatId, type])
@@ -77,6 +84,7 @@ model Chat {
   creator      User?             @relation("CreatedChats", fields: [creatorId], references: [id])
   participants ChatParticipant[]
   messages     Message[]
+  Project      Project[]
 
   @@index([creatorId])
 }
@@ -261,4 +269,109 @@ model DocumentCollaborator {
 
   @@id([documentId, userId])
   @@index([userId])
+}
+
+// 项目模型
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  creatorId   Int // 创建者ID
+  creator     User     @relation("ProjectCreator", fields: [creatorId], references: [id])
+
+  // 项目成员
+  members ProjectMember[]
+
+  // 项目置顶消息
+  pinnedMessages ProjectPinnedMessage[]
+
+  // 项目文件
+  files ProjectFile[]
+
+  // 项目链接
+  links ProjectLink[]
+
+  // 项目聊天
+  chatId Int? // 关联到项目的聊天室
+  chat   Chat? @relation(fields: [chatId], references: [id])
+
+  @@index([creatorId])
+  @@index([chatId])
+}
+
+// 项目成员
+model ProjectMember {
+  id        Int         @id @default(autoincrement())
+  projectId String
+  userId    Int
+  role      ProjectRole @default(MEMBER)
+  joinedAt  DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+// 项目置顶消息
+model ProjectPinnedMessage {
+  id        Int      @id @default(autoincrement())
+  projectId String
+  messageId Int
+  pinnedAt  DateTime @default(now())
+  pinnedBy  Int // 由谁置顶
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [pinnedBy], references: [id])
+
+  @@unique([projectId, messageId])
+  @@index([projectId])
+  @@index([messageId])
+}
+
+// 项目文件
+model ProjectFile {
+  id         Int      @id @default(autoincrement())
+  projectId  String
+  name       String
+  url        String
+  size       Int
+  type       String
+  uploadedAt DateTime @default(now())
+  uploadedBy Int
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [uploadedBy], references: [id])
+
+  @@index([projectId])
+  @@index([uploadedBy])
+}
+
+// 项目链接
+model ProjectLink {
+  id          Int      @id @default(autoincrement())
+  projectId   String
+  title       String
+  url         String
+  description String?
+  addedAt     DateTime @default(now())
+  addedBy     Int
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [addedBy], references: [id])
+
+  @@index([projectId])
+  @@index([addedBy])
+}
+
+// 项目成员角色枚举
+enum ProjectRole {
+  OWNER
+  ADMIN
+  MEMBER
 }

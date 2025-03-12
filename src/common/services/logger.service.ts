@@ -1,64 +1,98 @@
-import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common'
-import { createLogger, format, transports, Logger } from 'winston'
-import 'winston-daily-rotate-file'
-import * as path from 'path'
+import { Injectable, LoggerService as NestLoggerService, Scope } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 
-@Injectable()
+@Injectable({ scope: Scope.TRANSIENT })
 export class LoggerService implements NestLoggerService {
-	private logger: Logger
+	private context?: string
+	private readonly emojis = {
+		// 系统相关
+		NestFactory: '🚀',
+		InstanceLoader: '🔌',
+		RoutesResolver: '🧭',
+		RouterExplorer: '🛣️',
+		NestApplication: '✅',
+		WebSocketAdapter: '🔌',
+		WebSocketsController: '📡',
 
-	constructor() {
-		const logDir = 'logs'
-		const filename = path.join(logDir, 'app-%DATE%.log')
+		// 模块相关
+		MessagesModule: '💬',
+		UsersModule: '👤',
+		DocumentsModule: '📄',
+		MeetingsModule: '📹',
+		OrganizationsModule: '🏢',
+		RedisModule: '🔄',
+		EventsModule: '📣',
+		CommonModule: '🧰',
+		PrismaModule: '💾',
+		JwtModule: '🔑',
 
-		const dailyRotateFileTransport = new transports.DailyRotateFile({
-			filename,
-			datePattern: 'YYYY-MM-DD',
-			zippedArchive: true,
-			maxSize: '20m',
-			maxFiles: '14d',
-			level: 'debug',
-		} as any)
+		// 服务相关
+		MessagesService: '💬',
+		MessagesGateway: '📨',
+		UsersService: '👤',
+		DocumentsService: '📄',
+		DocumentsGateway: '📃',
+		MeetingsService: '📹',
+		MeetingsGateway: '📡',
+		OrganizationsService: '🏢',
+		RedisService: '🔄',
+		PrismaService: '💾',
+		LoggerService: '📝',
+		MinioService: '📦',
+		GroupChatService: '👥',
 
-		this.logger = createLogger({
-			level: 'debug',
-			format: format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), format.json()),
-			transports: [
-				// 控制台输出
-				new transports.Console({
-					level: 'debug',
-					format: format.combine(
-						format.colorize(),
-						format.printf(({ timestamp, level, message, context, ...meta }) => {
-							return `${timestamp} [${level}] ${context ? `[${context}]` : ''}: ${message} ${
-								Object.keys(meta).length ? JSON.stringify(meta, null, 2) : ''
-							}`
-						})
-					),
-				}),
-				// 文件输出
-				dailyRotateFileTransport,
-			],
-		})
+		// 默认
+		WebSocket: '🔌',
+		default: '📌',
 	}
 
-	log(message: string, context?: string) {
-		this.logger.info(message, { context })
+	constructor(private configService: ConfigService) {}
+
+	setContext(context: string) {
+		this.context = context
+		return this
 	}
 
-	error(message: string, trace?: string, context?: string) {
-		this.logger.error(message, { trace, context })
+	private getEmoji(context?: string): string {
+		if (!context) return this.emojis.default
+
+		// 尝试精确匹配
+		if (this.emojis[context]) {
+			return this.emojis[context]
+		}
+
+		// 尝试部分匹配
+		for (const key of Object.keys(this.emojis)) {
+			if (context.includes(key)) {
+				return this.emojis[key]
+			}
+		}
+
+		return this.emojis.default
 	}
 
-	warn(message: string, context?: string) {
-		this.logger.warn(message, { context })
+	log(message: any, context?: string) {
+		const emoji = this.getEmoji(context || this.context)
+		console.log(`${emoji} [${context || this.context || 'Logger'}] ${message}`)
 	}
 
-	debug(message: string, context?: string) {
-		this.logger.debug(message, { context })
+	error(message: any, trace?: string, context?: string) {
+		console.error(`❌ [${context || this.context || 'Logger'}] ${message}${trace ? `\n${trace}` : ''}`)
 	}
 
-	verbose(message: string, context?: string) {
-		this.logger.verbose(message, { context })
+	warn(message: any, context?: string) {
+		console.warn(`⚠️ [${context || this.context || 'Logger'}] ${message}`)
+	}
+
+	debug(message: any, context?: string) {
+		if (this.configService.get('NODE_ENV') !== 'production') {
+			console.debug(`🔍 [${context || this.context || 'Logger'}] ${message}`)
+		}
+	}
+
+	verbose(message: any, context?: string) {
+		if (this.configService.get('NODE_ENV') !== 'production') {
+			console.log(`🔬 [${context || this.context || 'Logger'}] ${message}`)
+		}
 	}
 }

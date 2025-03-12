@@ -13,6 +13,8 @@ import { APP_GUARD } from '@nestjs/core'
 import { MeetingsModule } from './meetings/meetings.module'
 import { DocumentsModule } from './documents/documents.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
+import { WebsocketDocsController } from './websocket-docs/websocket-docs.controller'
+import { ProjectsModule } from './projects/projects.module'
 
 @Module({
 	imports: [
@@ -28,8 +30,9 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 		OrganizationsModule,
 		MeetingsModule,
 		DocumentsModule,
+		ProjectsModule,
 	],
-	controllers: [],
+	controllers: [WebsocketDocsController],
 	providers: [
 		AppService,
 		{
